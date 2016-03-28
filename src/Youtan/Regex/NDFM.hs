@@ -1,6 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 
-module NDFM where
+module Youtan.Regex.NDFM where
 
 import qualified Data.Map.Strict as Map
 
@@ -14,6 +14,9 @@ type StateID = Int
 nextFreeID :: StateID -> StateID
 nextFreeID = succ
 
+initID :: StateID
+initID = 0
+
 flatMap :: (a -> [b]) -> [a] -> [b]
 flatMap f xs = intercalate [] ( fmap f xs )
 
@@ -23,27 +26,41 @@ data State = State
   , emptyBranch2 :: !( Maybe StateID )
   } deriving Show
 
+emptyState :: State
+emptyState = State Map.empty Nothing Nothing
+
+emptyBranchState :: StateID -> State
+emptyBranchState stateID = State Map.empty ( Just stateID ) Nothing
+
 data NDFM = NDFM
-  { finishState      :: !StateID
-  , startState       :: !StateID
+  { startState       :: !StateID
+  , finishState      :: !StateID
   , states           :: !( Map.Map StateID State )
   } deriving Show
 
-finiteState :: NDFM -> StateID -> Bool
-finiteState NDFM{..} = ( == ) finishState
+isFiniteState :: NDFM -> StateID -> Bool
+isFiniteState NDFM{..} = ( == ) finishState
 
 fromString :: String -> NDFM
-fromString str = undefined
+fromString str = newNDFM
+  where
+    finishState = nextFreeID initID
+    newStates = Map.fromList
+      [ ( initID, emptyBranchState finishState )
+      , ( finishState, emptyState )
+      ]
+    newNDFM = NDFM initID finishState newStates
 
 match :: Input -> Bool
-match str = any ( finiteState ndfm ) $ move str ( startState ndfm )
+match str = any ( isFiniteState ndfm ) $ move str ( startState ndfm )
   where
-    ndfm = undefined
+    ndfm = fromString str
 
     move :: Input -> StateID -> [ StateID ]
     move input stateID
       | null input = catMaybes emptyBranches
-      | otherwise  = symbolBranches ++ flatMap (move input) (catMaybes emptyBranches)
+      | otherwise  = symbolBranches ++
+        flatMap (move input) (catMaybes emptyBranches)
       where
         state = states ndfm Map.! stateID
         emptyBranches = [ emptyBranch1 state, emptyBranch2 state ]
@@ -52,5 +69,4 @@ match str = any ( finiteState ndfm ) $ move str ( startState ndfm )
         symbolStateID =  head input `Map.lookup` branches state
 
         symbolBranches :: [ StateID ]
-        symbolBranches = maybeToList $ fmap ( move ( tail input ) ) symbolStateID
-
+        symbolBranches = maybe [] ( move ( tail input ) ) symbolStateID

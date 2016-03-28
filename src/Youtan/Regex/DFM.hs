@@ -1,6 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 
-module DFM where
+module Youtan.Regex.DFM where
 
 import qualified Data.Map.Strict as Map
 
