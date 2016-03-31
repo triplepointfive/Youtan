@@ -29,6 +29,7 @@ fromString :: String -> DFM
 fromString str = DFM [ last states ] ( head states ) table
   where
     states = [0..length str]
+    table = undefined
 
 match :: String -> Bool
 match str = finite $ foldl move ( fromString str ) str
