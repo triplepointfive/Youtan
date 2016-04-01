@@ -2,16 +2,54 @@ module Youtan.Regex.Operators where
 
 import Data.Char (isAlphaNum)
 
+-- | Represents a single character class.
+data CharacterClass
+  -- | Any char except for newline.
+  = Dot
+  -- | A word character ([a-zA-Z0-9_]).
+  | Word
+  -- | A digit character ([0-9]).
+  | Digit
+  -- | Single rule to revent any character class.
+  | None CharacterClass
+  deriving ( Show, Eq )
+
+data Token
+  = AlphaNum Char
+  | Times Counter
+  | Separator
+  | OpenGroup
+  | CloseGroup
+  deriving ( Show, Eq )
+
+type Tokens = [ Token ]
+
+isCounter :: Char -> Bool
+isCounter c = c `elem` "*+?"
+
+isDisjunction :: Char -> Bool
+isDisjunction = ( == ) '|'
+
+isOpenGroup :: Char -> Bool
+isOpenGroup = ( == ) '('
+
+isCloseGroup :: Char -> Bool
+isCloseGroup = ( == ) ')'
+
 data Counter
   = KleeneStar
   | OneOrMore
   | ZeroOrOne
   deriving ( Show, Eq )
 
+counter :: Char -> Counter
+counter '*' = KleeneStar
+counter '+' = OneOrMore
+counter '?' = ZeroOrOne
+
 data Operator
   = Empty
   | Literal Char
-  | Group Operator
   | Concatenation Operator Operator
   | Disjunction Operator Operator
   | Counts Operator Counter
@@ -36,7 +74,7 @@ class Parser parser where
   onCloseGroup :: parser -> String -> ( String, parser )
   onDisjunction :: parser -> String -> ( String, parser )
 
-data TopParser = TopParser Operator
+data TopParser = TopParser { oper :: Operator }
   deriving ( Show, Eq )
 
 instance Parser TopParser where
@@ -59,7 +97,7 @@ instance Parser DisjunctionParser where
   onStringEnd = id
 
   onChar ( DisjunctionParser operator ) x = parse ( DisjunctionParser ( operator `merge` Literal x ) )
-  onCloseGroup ( DisjunctionParser operator ) xs = ( ')' : xs, DisjunctionParser operator )
+  onCloseGroup ( DisjunctionParser operator ) xs = ( xs, DisjunctionParser operator )
   onDisjunction ( DisjunctionParser operator ) xs = parse ( DisjunctionParser ( Disjunction operator dOper ) ) dRest
     where
       ( dRest, DisjunctionParser dOper ) = parse ( DisjunctionParser Empty ) xs
@@ -73,39 +111,29 @@ data GroupParser = GroupParser Operator
 instance Parser GroupParser where
   onChar ( GroupParser operator ) x = parse ( GroupParser ( operator `merge` Literal x ) )
   onCloseGroup ( GroupParser operator ) xs = ( xs, GroupParser operator )
-  onDisjunction ( GroupParser operator ) xs = parse ( GroupParser ( Disjunction operator dOper ) ) dRest
+  onDisjunction ( GroupParser operator ) xs = ( dRest, GroupParser ( Disjunction operator dOper ) )
     where
       ( dRest, DisjunctionParser dOper ) = parse ( DisjunctionParser Empty ) xs
-  -- onCounter ( GroupParser operator ) c = parse ( GroupParser ( Counts operator c ) )
 
   onOpenGroup ( GroupParser operator ) xs = error "Unexpected open group token"
   onCounter ( GroupParser operator ) c xs = error "Unexpected counter token"
   onStringEnd = error "Unexpected end of line, expected close group token"
 
-isCounter :: Char -> Bool
-isCounter c = c `elem` "*+?"
-
-isDisjunction :: Char -> Bool
-isDisjunction = ( == ) '|'
-
-isOpenGroup :: Char -> Bool
-isOpenGroup = ( == ) '('
-
-isCloseGroup :: Char -> Bool
-isCloseGroup = ( == ) ')'
-
-counter :: Char -> Counter
-counter '*' = KleeneStar
-counter '+' = OneOrMore
-counter '?' = ZeroOrOne
-
-oper ( TopParser o ) = o
-
 parseString :: String -> Operator
 parseString = oper . snd . parse ( TopParser Empty )
 
-buildCounter :: Operator -> Char -> Operator
-buildCounter operator ch = Counts operator ( counter ch )
+tokenize :: String -> Tokens
+tokenize = reverse . step []
+  where
+    step :: Tokens -> String -> Tokens
+    step ts [] = ts
+    step ts ( '+' : xs ) = step ( Times OneOrMore : ts ) xs
+    step ts ( '*' : xs ) = step ( Times KleeneStar : ts ) xs
+    step ts ( '?' : xs ) = step ( Times ZeroOrOne : ts ) xs
+    step ts ( '|' : xs ) = step ( Separator : ts ) xs
+    step ts ( '(' : xs ) = step ( OpenGroup : ts ) xs
+    step ts ( ')' : xs ) = step ( CloseGroup : ts ) xs
+    step ts ( x : xs )   = step ( AlphaNum x : ts ) xs
 
 merge :: Operator -> Operator -> Operator
 merge Empty operator      = operator

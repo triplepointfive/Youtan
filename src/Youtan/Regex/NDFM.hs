@@ -7,6 +7,8 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe ( catMaybes, maybeToList )
 import Data.List ( intercalate )
 
+import Youtan.Regex.Operators ( Counter(..), Operator(..), parseString )
+
 type Symbol = Char
 type Input  = String
 type StateID = Int
@@ -24,7 +26,13 @@ data State = State
   { branches     :: !( Map.Map Symbol StateID )
   , emptyBranch1 :: !( Maybe StateID )
   , emptyBranch2 :: !( Maybe StateID )
-  } deriving Show
+  } deriving Eq
+
+instance Show State where
+  show State{..} = concat ["{", intercalate ", " $ map (\ (s, i) -> s:" " ++ show i ) args  , "}"]
+    where
+      empties = map (\ stateID -> ( 'ε', stateID ) ) $ maybeToList emptyBranch1 ++ maybeToList emptyBranch2
+      args = Map.toList branches ++ empties
 
 emptyState :: State
 emptyState = State Map.empty Nothing Nothing
@@ -41,28 +49,45 @@ data NDFM = NDFM
 isFiniteState :: NDFM -> StateID -> Bool
 isFiniteState NDFM{..} = ( == ) finishState
 
+with :: Operator -> NDFM -> NDFM
+with Empty NDFM{..} = NDFM startState litID ( Map.insert litID emptyState newStates)
+  where
+    litID = nextFreeID finishState
+    newStates = Map.adjust
+      (\ state -> state{ emptyBranch1 = Just litID } )
+      finishState states
+with ( Literal x ) NDFM{..} = NDFM startState litID ( Map.insert litID emptyState newStates)
+  where
+    litID = nextFreeID finishState
+    newStates = Map.adjust
+      (\ state -> state{ branches = Map.insert x litID ( branches state ) } )
+      finishState states
+with ( Concatenation oper1 oper2 ) ndfm = with oper2 ( with oper1 ndfm )
+
+-- disjunction ( Disjunction oper1 oper2 ) =
+  -- where
+    -- n1 = with oper1 ( emptyNDFM initID )
+    -- n2 = with oper2 ( emptyNDFM ( nextID $ finishState n1 ) )
+
+emptyNDFM i = NDFM i i ( Map.singleton initID emptyState )
+
 fromString :: String -> NDFM
-fromString str = newNDFM
-  where
-    finishState = nextFreeID initID
-    newStates = Map.fromList
-      [ ( initID, emptyBranchState finishState )
-      , ( finishState, emptyState )
-      ]
-    newNDFM = NDFM initID finishState newStates
+fromString str = with ( parseString str ) ( emptyNDFM initID )
 
-match :: Input -> Bool
-match str = any ( isFiniteState ndfm ) $ move str ( startState ndfm )
-  where
-    ndfm = fromString str
+match :: String -> Input -> Bool
+match regex str = matchNDFM ( fromString regex ) str
 
+matchNDFM ndfm str = any ( isFiniteState ndfm ) $ move str ( startState ndfm )
+  where
     move :: Input -> StateID -> [ StateID ]
     move input stateID
-      | null input = catMaybes emptyBranches
-      | otherwise  = symbolBranches ++
+      | null input = stateID : catMaybes emptyBranches
+      | otherwise  =
+        symbolBranches ++
         flatMap (move input) (catMaybes emptyBranches)
       where
         state = states ndfm Map.! stateID
+
         emptyBranches = [ emptyBranch1 state, emptyBranch2 state ]
 
         symbolStateID :: Maybe StateID
