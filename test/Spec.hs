@@ -1,8 +1,9 @@
 import Test.Hspec
-import Control.Exception (evaluate)
 
 import Youtan.Regex.Operators
 import Youtan.Regex.NDFM
+
+import Control.Exception ( evaluate )
 
 a, b, c :: Operator
 a = Literal 'a'
@@ -12,45 +13,60 @@ c = Literal 'c'
 main :: IO ()
 main = hspec $ do
   describe "Operators.parseString" $ do
-    it "Empty string" $ do
+    it "Empty string" $
       parseString "" `shouldBe` Empty
 
-    it "Plain string" $ do
+    it "Plain string" $
       parseString "abc" `shouldBe` Concatenation ( Concatenation a b ) c
 
-    it "Options" $ do
+    it "Options" $
       parseString "a|b|c" `shouldBe` Disjunction a ( Disjunction b c )
 
-    it "Counter kleene star" $ do
-      parseString "a*" `shouldBe` Counts a KleeneStar
+    it "Counter kleene star" $
+      parseString "a*" `shouldBe` Counts KleeneStar a
 
-    it "Counter plus" $ do
-      parseString "a+" `shouldBe` Counts a OneOrMore
+    it "Counter plus" $
+      parseString "a+" `shouldBe` Counts OneOrMore a
 
-    it "Counter question mark" $ do
-      parseString "a?" `shouldBe` Counts a ZeroOrOne
+    it "Counter question mark" $
+      parseString "a?" `shouldBe` Counts ZeroOrOne a
 
-    it "Counter on group" $ do
-      parseString "(a|b)*" `shouldBe` Counts ( Disjunction a b ) KleeneStar
+    it "Counter on group" $
+      parseString "(a|b)*" `shouldBe` Counts KleeneStar ( Disjunction a b )
 
-    it "Disjunction grouping" $ do
+    it "Counter in group" $
+      parseString "(ab?)" `shouldBe` Concatenation a ( Counts ZeroOrOne b )
+
+    it "Counter in disjunction" $
+      parseString "a|b+" `shouldBe` Disjunction a ( Counts OneOrMore b )
+
+    it "Disjunction grouping" $
       parseString "ab|bc|ca" `shouldBe` Disjunction ( Concatenation a b ) ( Disjunction ( Concatenation b c ) ( Concatenation c a ) )
 
+    it "Character classes" $
+      parseString "\\w|\\d|\\s" `shouldBe` Disjunction ( CharClass Word ) ( Disjunction ( CharClass Digit ) ( CharClass Whitespace ) )
+
+    it "Chars escaping" $
+      parseString ".\\." `shouldBe` Concatenation ( CharClass Dot ) ( Literal '.' )
+
+    it "Group token is unclosed" $
+      evaluate ( parseString "(ab" ) `shouldThrow` anyException
+
   describe "NDFM.match" $ do
-    it "Empty regex with empty string" $ do
+    it "Empty regex with empty string" $
       match "" "" `shouldBe` True
 
-    it "Empty regex with none empty string" $ do
+    it "Empty regex with none empty string" $
       match "" "abc" `shouldBe` False
 
-    it "Single char regex with same char string" $ do
+    it "Single char regex with same char string" $
       match "a" "a" `shouldBe` True
 
-    it "Single char regex with another char string" $ do
+    it "Single char regex with another char string" $
       match "a" "b" `shouldBe` False
 
-    it "Plain regex with same plain string" $ do
+    it "Plain regex with same plain string" $
       match "abc" "abc" `shouldBe` True
 
-    it "Plain regex with different plain string" $ do
+    it "Plain regex with different plain string" $
       match "abc" "acc" `shouldBe` False
