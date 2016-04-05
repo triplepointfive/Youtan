@@ -70,3 +70,18 @@ main = hspec $ do
 
     it "Plain regex with different plain string" $
       match "abc" "acc" `shouldBe` False
+
+    it "Literal disjunction matching branch 1" $
+      match "a|b" "a" `shouldBe` True
+
+    it "Literal disjunction matching branch 1" $
+      match "a|b" "b" `shouldBe` True
+
+    it "Literal disjunction matching nothing" $
+      match "a|b" "c" `shouldBe` False
+
+    it "Literal disjunction with few branches and matching" $
+      match "a|b|c|d|e" "e" `shouldBe` True
+
+    it "Literal disjunction with few branches without matching" $
+      match "a|b|c|d|e" "t" `shouldBe` False
