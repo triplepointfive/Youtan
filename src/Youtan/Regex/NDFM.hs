@@ -4,10 +4,11 @@ module Youtan.Regex.NDFM where
 
 import qualified Data.Map.Strict as Map
 
-import Data.Maybe ( catMaybes, maybeToList, isNothing )
+import Data.Maybe ( catMaybes, isNothing, catMaybes )
 import Data.List ( intercalate )
+import Data.Char ( isDigit, isAscii, isSpace )
 
-import Youtan.Regex.Operators ( Counter(..), Operator(..), parseString )
+import Youtan.Regex.Operators ( Counter(..), Operator(..), CharacterClass(..), parseString )
 
 type Symbol = Char
 type Input  = String
@@ -19,29 +20,34 @@ nextFreeID = succ
 initID :: StateID
 initID = 0
 
+data Matcher
+  = Exact Symbol
+  | Class CharacterClass
+  deriving ( Eq, Show )
+
 data State = State
-  { branches     :: !( Map.Map Symbol StateID )
+  { branches     :: ![ ( Matcher, StateID ) ]
   , emptyBranch1 :: !( Maybe StateID )
   , emptyBranch2 :: !( Maybe StateID )
   } deriving Eq
 
 instance Show State where
-  show State{..} = concat ["{", intercalate ", " $ map (\ (s, i) -> s:" " ++ show i ) args  , "}"]
+  show State{..} = concat ["{", intercalate ", " $ map (\ (s, i) -> show s ++ " " ++ show i ) args  , "}"]
     where
-      empties = map (\ stateID -> ( 'ε', stateID ) ) $ maybeToList emptyBranch1 ++ maybeToList emptyBranch2
-      args = Map.toList branches ++ empties
+      empties = map (\ stateID -> ( Exact 'ε', stateID ) ) $ catMaybes [ emptyBranch1, emptyBranch2 ]
+      args = branches ++ empties
 
 emptyState :: State
-emptyState = State Map.empty Nothing Nothing
+emptyState = State [] Nothing Nothing
 
 emptyBranchState :: StateID -> State
-emptyBranchState stateID = State Map.empty ( Just stateID ) Nothing
+emptyBranchState stateID = State [] ( Just stateID ) Nothing
 
 emptyBranchesState :: StateID -> StateID -> State
-emptyBranchesState st1 st2 = State Map.empty ( Just st1 ) ( Just st2 )
+emptyBranchesState st1 st2 = State [] ( Just st1 ) ( Just st2 )
 
-branchState :: Symbol -> StateID -> State
-branchState char stateID = State ( Map.singleton char stateID ) Nothing Nothing
+branchState :: Matcher -> StateID -> State
+branchState matcher stateID = State [ ( matcher, stateID ) ] Nothing Nothing
 
 setEmptyBranch :: StateID -> State -> State
 setEmptyBranch stateID state@State{..}
@@ -52,15 +58,13 @@ setEmptyBranch stateID state@State{..}
     ++ " " ++ show stateID
 
 data NDFM = NDFM
-  { startState       :: !StateID
-  , finishState      :: !StateID
-  , states           :: !( Map.Map StateID State )
+  { startState  :: !StateID
+  , finishState :: !StateID
+  , states      :: !( Map.Map StateID State )
   } deriving Show
 
 isFiniteState :: NDFM -> StateID -> Bool
 isFiniteState NDFM{..} = ( == ) finishState
-
--- emptyNDFM i = NDFM i i ( Map.singleton initID emptyState )
 
 with :: Operator -> StateID -> NDFM
 with Empty lastID = NDFM lastID litID ( Map.fromList states )
@@ -70,7 +74,11 @@ with Empty lastID = NDFM lastID litID ( Map.fromList states )
 with ( Literal x ) lastID = NDFM lastID litID ( Map.fromList states )
   where
     litID = nextFreeID lastID
-    states = [ ( lastID, branchState x litID ), ( litID, emptyState ) ]
+    states = [ ( lastID, branchState ( Exact x ) litID ), ( litID, emptyState ) ]
+with ( CharClass chClass ) lastID = NDFM lastID litID ( Map.fromList states )
+  where
+    litID = nextFreeID lastID
+    states = [ ( lastID, branchState ( Class chClass ) litID ), ( litID, emptyState ) ]
 with ( Concatenation oper1 oper2 ) lastID = NDFM lastID finish2 allStates
   where
     ( NDFM _ finish1 states1 ) = with oper1 lastID
@@ -91,9 +99,20 @@ with ( Disjunction oper1 oper2 ) lastID = NDFM lastID lastNodeID allStates
 fromString :: String -> NDFM
 fromString str = with ( parseString str ) initID
 
+matchState :: State -> Symbol -> [ StateID ]
+matchState State{..} char = map snd $ filter ( matches . fst ) branches
+  where
+    matches ( Exact x )    = x == char
+    matches ( Class Dot )  = True
+    matches ( Class Word ) = any ( \f -> f char ) [ isAscii, isDigit, (==) '_' ]
+    matches ( Class Digit )      = isDigit char
+    matches ( Class Whitespace ) = isSpace char
+    matches ( Class ( None chClass ) ) = not $ matches ( Class chClass )
+
 match :: String -> Input -> Bool
 match regex = matchNDFM ( fromString regex )
 
+matchNDFM :: NDFM -> Input -> Bool
 matchNDFM ndfm str = any ( isFiniteState ndfm ) $ move str ( startState ndfm )
   where
     move :: Input -> StateID -> [ StateID ]
@@ -103,10 +122,8 @@ matchNDFM ndfm str = any ( isFiniteState ndfm ) $ move str ( startState ndfm )
       where
         state = states ndfm Map.! stateID
 
-        emptyBranches = concatMap ( move input ) $ catMaybes [ emptyBranch1 state, emptyBranch2 state ]
-
-        symbolStateID :: Maybe StateID
-        symbolStateID =  head input `Map.lookup` branches state
+        emptyBranches = concatMap ( move input ) $
+          catMaybes [ emptyBranch1 state, emptyBranch2 state ]
 
         symbolBranches :: [ StateID ]
-        symbolBranches = maybe [] ( move ( tail input ) ) symbolStateID
+        symbolBranches = concatMap ( move ( tail input ) ) $ matchState state ( head input )

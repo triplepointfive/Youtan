@@ -81,7 +81,7 @@ class Parser parser where
 
   -- | Action for 'Class' token.
   onClass :: CharacterClass -> parser -> Tokens -> ( Tokens, parser )
-  onClass charClass = action ( merge ( CharClass charClass ) )
+  onClass charClass = action ( `merge` CharClass charClass )
 
   -- | Action for 'Character' token.
   onChar :: Char -> parser -> Tokens -> ( Tokens, parser )
@@ -89,7 +89,7 @@ class Parser parser where
 
   -- | Action for 'Times' token.
   onCounter :: Counter -> parser -> Tokens -> ( Tokens, parser )
-  onCounter c = action ( count )
+  onCounter c = action count
     where
       -- | Applies counter to an operator. The only thing counter respects is
       -- concationation, all the rest could be wrapped.
@@ -195,7 +195,7 @@ tokenize = reverse . step []
     -- | Separate function for escaped sequence. Just to make 'step'
     -- more readable.
     escaped :: Tokens -> String -> Tokens
-    escaped _  ( [] )       = error "Too short escape sequence"
+    escaped _  []           = error "Too short escape sequence"
     escaped ts ( 'w' : xs ) = step ( Class Word : ts ) xs
     escaped ts ( 'd' : xs ) = step ( Class Digit : ts ) xs
     escaped ts ( 's' : xs ) = step ( Class Whitespace : ts ) xs

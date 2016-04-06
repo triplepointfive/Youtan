@@ -85,3 +85,6 @@ main = hspec $ do
 
     it "Literal disjunction with few branches without matching" $
       match "a|b|c|d|e" "t" `shouldBe` False
+
+    it "Empty disjunction matching" $
+      match "(a|)" "" `shouldBe` True
