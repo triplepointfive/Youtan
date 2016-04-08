@@ -23,7 +23,11 @@ initID = 0
 data Matcher
   = Exact Symbol
   | Class CharacterClass
-  deriving ( Eq, Show )
+  deriving ( Eq )
+
+instance Show Matcher where
+  show ( Exact ch ) = ch:[]
+  show ( Class chClass ) = show chClass
 
 data State = State
   { branches     :: ![ ( Matcher, StateID ) ]
@@ -57,10 +61,12 @@ setEmptyBranch stateID state@State{..}
     ++ "both available branches are populated " ++ show state
     ++ " " ++ show stateID
 
+type States = Map.Map StateID State
+
 data NDFM = NDFM
   { startState  :: !StateID
   , finishState :: !StateID
-  , states      :: !( Map.Map StateID State )
+  , states      :: !States
   } deriving Show
 
 isFiniteState :: NDFM -> StateID -> Bool
@@ -92,9 +98,27 @@ with ( Disjunction oper1 oper2 ) lastID = NDFM lastID lastNodeID allStates
     ( NDFM _ finish2 states2 ) = with oper2 node2StartID
     lastNodeID = nextFreeID finish2
     unionStates = Map.union states2 states1
-    withFinish = foldl ( flip ( Map.adjust ( setEmptyBranch lastNodeID ) ) ) unionStates [ finish1, finish2 ]
+    withFinish = foldl ( flip ( `link` lastNodeID  ) ) unionStates [ finish1, finish2 ]
     withLastNode = Map.insert lastNodeID emptyState withFinish
     allStates = Map.insert lastID ( emptyBranchesState node1StartID node2StartID ) withLastNode
+with ( Counts counter operator ) lastID =
+  countNode counter ( with operator ( nextFreeID lastID ) ) lastID
+
+countNode :: Counter -> NDFM -> StateID -> NDFM
+countNode counter NDFM{..} lastID = NDFM lastID endID $ case counter of
+    KleeneStar -> link lastID endID $ baseStates $ link finishState startState states
+    ZeroOrOne  -> link lastID endID $ baseStates   states
+    OneOrMore  ->                     baseStates $ link finishState startState states
+  where
+    endID = nextFreeID finishState
+    baseStates
+      = link finishState endID
+      . link lastID startState
+      . Map.insert endID emptyState
+      . Map.insert lastID emptyState
+
+link :: StateID -> StateID -> States -> States
+link from to = Map.adjust ( setEmptyBranch to ) from
 
 fromString :: String -> NDFM
 fromString str = with ( parseString str ) initID

@@ -88,3 +88,33 @@ main = hspec $ do
 
     it "Empty disjunction matching" $
       match "(a|)" "" `shouldBe` True
+
+    it "Kleene matches empty string" $
+      match "a*" "" `shouldBe` True
+
+    it "Kleene matches single char string" $
+      match "a*" "a" `shouldBe` True
+
+    it "Kleene matches few char string" $
+      match "a*" "aaaa" `shouldBe` True
+
+    it "Kleene fails for another char" $
+      match "a*" "b" `shouldBe` False
+
+    it "Zero or one matches with empty string" $
+      match "\\d?" "" `shouldBe` True
+
+    it "Zero or one matches exactly one char string" $
+      match "\\d?" "1" `shouldBe` True
+
+    it "Zero or one fails for few chars string" $
+      match "\\d?" "23" `shouldBe` False
+
+    it "One or more fails with empty string" $
+      match "\\d+" "" `shouldBe` False
+
+    it "One or more matches exactly one char string" $
+      match "\\d+" "1" `shouldBe` True
+
+    it "One or more matches for few chars string" $
+      match "\\d+" "234" `shouldBe` True
