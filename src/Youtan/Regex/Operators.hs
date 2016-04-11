@@ -44,7 +44,13 @@ data Counter
   | OneOrMore
   -- | Optional, but one time at most.
   | ZeroOrOne
-  deriving ( Show, Eq )
+  deriving ( Eq )
+
+-- | For better display.
+instance Show Counter where
+  show KleeneStar = "*"
+  show OneOrMore = "+"
+  show ZeroOrOne = "?"
 
 -- | Action on matching input.
 data Operator
@@ -60,6 +66,8 @@ data Operator
   | Counts Counter Operator
   -- | A set of literals.
   | CharClass CharacterClass
+  -- | A union of operators. Could be used to apply something on a set of them.
+  | Group Operator
   deriving ( Show, Eq )
 
 -- | Class means visitor over a token list and building an operators tree.
@@ -95,6 +103,8 @@ class Parser parser where
       -- concationation, all the rest could be wrapped.
       count :: Operator -> Operator
       count ( Concatenation oper1 oper2 ) = Concatenation oper1 ( count oper2 )
+      count Empty    = error $ 
+        "Target of repeat operator " ++ show c ++ " is not specified"
       count operator = Counts c operator
 
   -- | Action for 'Separate' token.
@@ -135,7 +145,7 @@ data TopParser = TopParser Operator
 instance Parser TopParser where
   onStringEnd = id
 
-  onOpenGroup ( TopParser operator ) xs = parse ( TopParser ( operator `merge` gOper ) ) gRest
+  onOpenGroup ( TopParser operator ) xs = parse ( TopParser ( operator `merge` Group gOper ) ) gRest
     where ( gRest, GroupParser gOper ) = parse ( GroupParser Empty ) xs
   onCloseGroup = error "Unexpected close group token"
 

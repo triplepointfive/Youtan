@@ -11,7 +11,7 @@ b = Literal 'b'
 c = Literal 'c'
 
 main :: IO ()
-main = hspec $ do
+main = hspec $ parallel $ do
   describe "Operators.parseString" $ do
     it "Empty string" $
       parseString "" `shouldBe` Empty
@@ -32,10 +32,10 @@ main = hspec $ do
       parseString "a?" `shouldBe` Counts ZeroOrOne a
 
     it "Counter on group" $
-      parseString "(a|b)*" `shouldBe` Counts KleeneStar ( Disjunction a b )
+      parseString "(a|b)*" `shouldBe` Counts KleeneStar ( Group ( Disjunction a b ) )
 
     it "Counter in group" $
-      parseString "(ab?)" `shouldBe` Concatenation a ( Counts ZeroOrOne b )
+      parseString "(ab?)" `shouldBe` Group ( Concatenation a ( Counts ZeroOrOne b ) )
 
     it "Counter in disjunction" $
       parseString "a|b+" `shouldBe` Disjunction a ( Counts OneOrMore b )
@@ -118,3 +118,12 @@ main = hspec $ do
 
     it "One or more matches for few chars string" $
       match "\\d+" "234" `shouldBe` True
+
+    it "Nested counter matches once" $
+      match "(\\d\\d:?)+" "23" `shouldBe` True
+
+    it "Nested counter matches few times" $
+      match "(\\d\\d:?)+" "12:34:" `shouldBe` True
+
+    it "Nested counter fails on second time" $
+      match "(\\d\\d:?)+" "12:3" `shouldBe` False
