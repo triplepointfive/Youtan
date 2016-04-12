@@ -2,6 +2,8 @@
 -- base regex rules.
 module Youtan.Regex.Operators where
 
+import Data.Tuple ( swap )
+
 -- | Represents a single character class.
 data CharacterClass
   -- | Any char except for newline.
@@ -14,6 +16,8 @@ data CharacterClass
   | Whitespace
   -- | Single rule to revent any character class.
   | None CharacterClass
+  -- | Group of chars.
+  | CharGroup String
   deriving ( Show, Eq )
 
 -- | A token in regex.
@@ -70,6 +74,14 @@ data Operator
   | Group Operator
   deriving ( Show, Eq )
 
+-- | When one counter is applied to another that doesn't make much sense to
+-- treat them separately. Could be traversed to one counter instead.
+mergeCounters :: Counter -> Counter -> Counter
+mergeCounters ZeroOrOne ZeroOrOne = ZeroOrOne
+mergeCounters OneOrMore OneOrMore = OneOrMore
+-- All the rest combinations lead to kleene.
+mergeCounters _ _                 = KleeneStar
+
 -- | Class means visitor over a token list and building an operators tree.
 class Parser parser where
   -- | Builds a tree with given parser and string.
@@ -79,13 +91,15 @@ class Parser parser where
   -- | Top parsing function, dispense operators over other functions.
   parse :: parser -> Tokens -> ( Tokens, parser )
   parse parser [] = ( [], onStringEnd parser )
-  parse parser ( x:xs ) = case x of
-    Character c -> onChar c parser xs
-    OpenGroup   -> onOpenGroup parser xs
-    CloseGroup  -> onCloseGroup parser xs
-    Separator   -> onDisjunction parser xs
-    Times c     -> onCounter c parser xs
-    Class c     -> onClass c parser xs
+  parse parser ( x:xs ) = process parser xs
+    where
+      process = case x of
+        Character c -> onChar c
+        OpenGroup   -> onOpenGroup
+        CloseGroup  -> onCloseGroup
+        Separator   -> onDisjunction
+        Times c     -> onCounter c
+        Class c     -> onClass c
 
   -- | Action for 'Class' token.
   onClass :: CharacterClass -> parser -> Tokens -> ( Tokens, parser )
@@ -103,7 +117,9 @@ class Parser parser where
       -- concationation, all the rest could be wrapped.
       count :: Operator -> Operator
       count ( Concatenation oper1 oper2 ) = Concatenation oper1 ( count oper2 )
-      count Empty    = error $ 
+      count ( Group counter@( Counts _ _ ) ) = Group ( count counter )
+      count ( Counts counter oper ) = Counts ( mergeCounters c counter ) oper
+      count Empty    = error $
         "Target of repeat operator " ++ show c ++ " is not specified"
       count operator = Counts c operator
 
@@ -160,7 +176,7 @@ data DisjunctionParser = DisjunctionParser Operator
 instance Parser DisjunctionParser where
   onStringEnd = id
 
-  onCloseGroup ( DisjunctionParser operator ) xs = ( xs, DisjunctionParser operator )
+  onCloseGroup = curry swap
 
   onOpenGroup = error "Unexpected open group token"
 
@@ -199,6 +215,11 @@ tokenize = reverse . step []
     step ts ( '(' : xs )  = step ( OpenGroup : ts ) xs
     step ts ( ')' : xs )  = step ( CloseGroup : ts ) xs
     step ts ( '.' : xs )  = step ( Class Dot : ts ) xs
+    step ts ( '[' : '^' : xs )
+      = step ( Class ( None ( CharGroup group ) ) : ts ) rest
+      where ( group, rest ) = charClass "" xs
+    step ts ( '[' : xs )  = step ( Class ( CharGroup group ) : ts ) rest
+      where ( group, rest ) = charClass "" xs
     step ts ( '\\' : xs ) = escaped ts xs
     step ts ( x : xs )    = step ( Character x : ts ) xs
 
@@ -213,6 +234,14 @@ tokenize = reverse . step []
     escaped ts ( 'D' : xs ) = step ( Class ( None Digit ) : ts ) xs
     escaped ts ( 'S' : xs ) = step ( Class ( None Whitespace ) : ts ) xs
     escaped ts (   x : xs ) = step ( Character x : ts ) xs
+
+    charClass :: String -> String -> ( String, String )
+    charClass _ [] = error "Premature end of char-class"
+    -- TODO: Warn of empty group.
+    charClass g ( x : '-' : y : xs )  = charClass ( [ x .. y ] ++ g ) xs
+    charClass group ( '\\' : x : xs ) = charClass ( x : group ) xs
+    charClass group ( ']' : xs )      = ( group, xs )
+    charClass group ( x : xs )        = charClass ( x : group ) xs
 
 -- | Kludge for parsers with no operator ('Empty') yet. Kinda blame function,
 -- but much better than wrapping it with 'Maybe'.

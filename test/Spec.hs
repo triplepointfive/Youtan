@@ -10,6 +10,8 @@ a = Literal 'a'
 b = Literal 'b'
 c = Literal 'c'
 
+-- TODO: Test repeaters applied to repeaters.
+
 main :: IO ()
 main = hspec $ parallel $ do
   describe "Operators.parseString" $ do

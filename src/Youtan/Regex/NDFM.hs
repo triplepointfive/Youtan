@@ -158,6 +158,7 @@ matchState State{..} char = map snd $ filter ( matches . fst ) branches
     matches ( Class Word ) = any ( \f -> f char ) [ isAscii, isDigit, (==) '_' ]
     matches ( Class Digit )      = isDigit char
     matches ( Class Whitespace ) = isSpace char
+    matches ( Class ( CharGroup group ) ) = char `elem` group
     matches ( Class ( None chClass ) ) = not $ matches ( Class chClass )
 
 -- | Tries to apply regex to an input string.
