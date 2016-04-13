@@ -5,7 +5,7 @@ module Youtan.Regex.NDFM where
 
 import qualified Data.Map.Strict as Map
 
-import Data.Maybe ( catMaybes, isNothing, catMaybes )
+import Data.Maybe ( isNothing, catMaybes )
 import Data.List ( intercalate )
 import Data.Char ( isDigit, isAscii, isSpace )
 
@@ -32,7 +32,7 @@ initID = 0
 data Matcher
   = Exact Symbol         -- ^ Single char.
   | Class CharacterClass -- ^ Any 'CharacterClass'.
-  deriving ( Eq )
+  deriving ( Ord, Eq )
 
 -- | For better display.
 instance Show Matcher where

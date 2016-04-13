@@ -18,7 +18,7 @@ data CharacterClass
   | None CharacterClass
   -- | Group of chars.
   | CharGroup String
-  deriving ( Show, Eq )
+  deriving ( Ord, Show, Eq )
 
 -- | A token in regex.
 data Token
@@ -86,7 +86,7 @@ mergeCounters _ _                 = KleeneStar
 class Parser parser where
   -- | Builds a tree with given parser and string.
   build :: parser -> Tokens -> Operator
-  build parser = getOperator . snd . parse ( setOperator parser Empty )
+  build parser = getOperator . snd . parse parser
 
   -- | Top parsing function, dispense operators over other functions.
   parse :: parser -> Tokens -> ( Tokens, parser )
@@ -237,7 +237,7 @@ tokenize = reverse . step []
 
     charClass :: String -> String -> ( String, String )
     charClass _ [] = error "Premature end of char-class"
-    -- TODO: Warn of empty group.
+    charClass [] ( ']' : _ ) = error "Empty char-class []"
     charClass g ( x : '-' : y : xs )  = charClass ( [ x .. y ] ++ g ) xs
     charClass group ( '\\' : x : xs ) = charClass ( x : group ) xs
     charClass group ( ']' : xs )      = ( group, xs )
