@@ -150,8 +150,8 @@ fromString :: String -> NDFM
 fromString str = with ( parseString str ) initID
 
 -- | Search for matching branches within a node. Includes brank branches.
-matchState :: State -> Symbol -> [ StateID ]
-matchState State{..} char = map snd $ filter ( matches . fst ) branches
+matchState :: [ ( Matcher, a ) ] -> Symbol -> [ a ]
+matchState branches char = map snd $ filter ( matches . fst ) branches
   where
     matches ( Exact x )    = x == char
     matches ( Class Dot )  = True
@@ -180,4 +180,5 @@ matchNDFM ndfm str = any ( isFiniteState ndfm ) $ move str ( startState ndfm )
           catMaybes [ emptyBranch1 state, emptyBranch2 state ]
 
         symbolBranches :: [ StateID ]
-        symbolBranches = concatMap ( move ( tail input ) ) $ matchState state ( head input )
+        symbolBranches = concatMap ( move ( tail input ) )
+          $ matchState ( branches state ) ( head input )
