@@ -3,16 +3,12 @@
 
 module Youtan.Regex.NDFM where
 
-import qualified Data.Map.Strict as Map
-
-import Data.Maybe ( isNothing, catMaybes )
 import Data.List ( intercalate )
-import Data.Char ( isDigit, isAscii, isSpace )
+import qualified Data.Map.Strict as Map
+import Data.Maybe ( isNothing, catMaybes )
 
-import Youtan.Regex.Operators ( Counter(..), Operator(..), CharacterClass(..), parseString )
-
--- | A literal in input string.
-type Symbol = Char
+import Youtan.Regex.Operators ( Counter(..), Operator(..), parseString )
+import Youtan.Regex.FM
 
 -- | An input string.
 type Input  = String
@@ -27,17 +23,6 @@ nextFreeID = succ
 -- | Just some ID to start off.
 initID :: StateID
 initID = 0
-
--- | Extension for char matching, allows to match with 'CharacterClass'.
-data Matcher
-  = Exact Symbol         -- ^ Single char.
-  | Class CharacterClass -- ^ Any 'CharacterClass'.
-  deriving ( Ord, Eq )
-
--- | For better display.
-instance Show Matcher where
-  show ( Exact ch ) = [ ch ]
-  show ( Class chClass ) = show chClass
 
 -- | A Node in 'NDFM' graph.
 data State = State
@@ -148,18 +133,6 @@ link from to = Map.adjust ( setEmptyBranch to ) from
 -- | Builds 'NDFM' from string.
 fromString :: String -> NDFM
 fromString str = with ( parseString str ) initID
-
--- | Search for matching branches within a node. Includes brank branches.
-matchState :: [ ( Matcher, a ) ] -> Symbol -> [ a ]
-matchState branches char = map snd $ filter ( matches . fst ) branches
-  where
-    matches ( Exact x )    = x == char
-    matches ( Class Dot )  = True
-    matches ( Class Word ) = any ( \f -> f char ) [ isAscii, isDigit, (==) '_' ]
-    matches ( Class Digit )      = isDigit char
-    matches ( Class Whitespace ) = isSpace char
-    matches ( Class ( CharGroup group ) ) = char `elem` group
-    matches ( Class ( None chClass ) ) = not $ matches ( Class chClass )
 
 -- | Tries to apply regex to an input string.
 match :: String -> Input -> Bool

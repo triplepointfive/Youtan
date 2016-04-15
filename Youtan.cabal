@@ -17,6 +17,7 @@ library
   hs-source-dirs:      src
   exposed-modules:     Lib
                      , Youtan.Regex.DFM
+                     , Youtan.Regex.FM
                      , Youtan.Regex.NDFM
                      , Youtan.Regex.Operators
   build-depends:       base >= 4.7 && < 5
