@@ -4,6 +4,7 @@
 module Youtan.Regex.DFM where
 
 import Control.Monad ( foldM )
+import Data.List ( find )
 import Data.Maybe ( catMaybes, listToMaybe, fromMaybe )
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -35,6 +36,8 @@ data DFM = DFM
   { finiteStates     :: ![ State ]
   , startState       :: !State
   , transitionsTable :: !TransitionTable
+  , transitions      :: !( Set.Set Matcher )
+  , lastID           :: !State
   } deriving Show
 
 fromNDFM :: NDFM.NDFM -> DFM
@@ -46,13 +49,18 @@ markState dtable@DTable{..} = ( Set.elemAt 0 states2,
           processed = Set.insert ( Set.elemAt 0 states2 ) processed } )
 
 buildDFM :: DTable -> DFM
-buildDFM DTable{..} = DFM finish initID finStates
+buildDFM DTable{..} = DFM finish initID finStates trans lastState
   where
     finish :: [ State ]
     finish = map snd $ Map.toList $ Map.filterWithKey ( \ k _ -> Set.member finishState k ) states
 
     states :: Map.Map ( Set.Set NDFM.StateID ) State
     states = Map.fromList $ zip ( Set.toList processed ) ( iterate nextFreeID initID )
+
+    lastState = iterate nextFreeID initID !! Map.size states
+
+    trans :: Set.Set Matcher
+    trans = Set.fromList $ map snd $ Map.keys table
 
     finStates :: TransitionTable
     finStates = Map.foldlWithKey
@@ -101,10 +109,7 @@ buildDTable NDFM.NDFM{..} = step newDTable
              else d{ states2 = Set.insert u ( states2 d ) }
 
 fromString :: String -> DFM
-fromString str = DFM [ last states ] ( head states ) table
-  where
-    states = undefined
-    table = undefined
+fromString str = undefined
 
 matchDFM :: DFM -> String -> Bool
 matchDFM DFM{..} = finite . foldM move startState
@@ -117,6 +122,24 @@ matchDFM DFM{..} = finite . foldM move startState
       where
         states :: State -> [ ( Matcher, State ) ]
         states = fromMaybe [] . flip Map.lookup transitionsTable
+
+closureDFM :: DFM -> DFM
+closureDFM dfm@DFM{..} =
+    dfm{ transitionsTable = closuredTable
+       , lastID = q
+       }
+  where
+    q = nextFreeID lastID
+    closureRow = map ( \x -> ( x, q ) ) trans
+    trans = Set.toList transitions
+
+    closuredTable :: TransitionTable
+    closuredTable
+      = Map.insert q closureRow
+      $ Map.map (\ v -> map
+          ( \m -> fromMaybe ( m, q ) ( find ( (==) m . fst ) v ) )
+          trans )
+        transitionsTable
 
 match :: String -> String -> Bool
 match regex = matchDFM ( fromString regex )
