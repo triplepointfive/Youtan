@@ -3,8 +3,10 @@
 -- | Implementation of DFM.
 module Youtan.Regex.DFM where
 
+import Control.Arrow ( second )
 import Control.Monad ( foldM )
-import Data.List ( find )
+import Data.List ( find, (\\), groupBy )
+import Data.Function ( on )
 import Data.Maybe ( catMaybes, listToMaybe, fromMaybe )
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -137,9 +139,52 @@ closureDFM dfm@DFM{..} =
     closuredTable
       = Map.insert q closureRow
       $ Map.map (\ v -> map
-          ( \m -> fromMaybe ( m, q ) ( find ( (==) m . fst ) v ) )
-          trans )
-        transitionsTable
+        ( \m -> fromMaybe ( m, q ) ( find ( (==) m . fst ) v ) )
+        trans )
+        ( foldl
+          ( \t s -> Map.insertWith ( const id ) s [] t )
+          transitionsTable
+          finiteStates )
+
+newtype GroupID = GroupID State
+  deriving ( Eq )
+
+instance Show GroupID where
+  show ( GroupID a ) = show a
+
+type Groups = Set.Set ( Set.Set State )
+
+group :: DFM -> DFM
+group dfm@DFM{..} = undefined
+  where
+    initGroups = Set.fromList [ Set.fromList finiteStates,
+                                Set.fromList $ Map.keys transitionsTable \\ finiteStates ]
+
+    split :: Groups -> Groups
+    split groups
+      = if groups == splited then splited else split splited
+      where
+        stateIDs = Map.keys transitionsTable
+
+        idToGroup :: Map.Map State GroupID
+        idToGroup = snd $
+          Set.foldl (\(lastID, pairs ) group ->
+            ( nextFreeID lastID, Set.foldl (\l s -> Map.insert s ( GroupID lastID ) l ) pairs group ) )
+          ( initID, Map.empty )
+          groups
+
+        stateToGroups :: Map.Map State ( Map.Map Matcher GroupID )
+        stateToGroups = Map.map
+          ( Map.fromList . map ( second ( ( Map.! ) idToGroup ) ) )
+          transitionsTable
+
+        splited :: Groups
+        splited = Set.map Set.fromList $ Set.fromList $
+          groupBy ( (==) `on` (Map.!) stateToGroups )
+          stateIDs
+
+minimize :: DFM -> DFM
+minimize = undefined
 
 match :: String -> String -> Bool
 match regex = matchDFM ( fromString regex )
