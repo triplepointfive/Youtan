@@ -10,6 +10,11 @@ import Youtan.Regex.NDFM as NDFM ( fromString )
 import Youtan.Regex.FMTestCases
 
 spec :: SpecWith ()
-spec = context "matchDFM . fromNDFM" $
-  forM_ cases $ \ ( regex, input, result, name ) ->
-    it name $ matchDFM ( fromNDFM ( NDFM.fromString regex )) input `shouldBe` result
+spec = do
+  context "matchDFM . fromNDFM" $
+    forM_ cases $ \ ( regex, input, result, name ) ->
+      it name $ matchDFM ( fromNDFM ( NDFM.fromString regex ) ) input `shouldBe` result
+
+  context "matchDFM . group . fromNDFM" $
+    forM_ cases $ \ ( regex, input, result, name ) ->
+      it name $ matchDFM ( group ( fromNDFM ( NDFM.fromString regex ) ) ) input `shouldBe` result

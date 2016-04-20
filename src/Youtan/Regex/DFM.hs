@@ -39,7 +39,7 @@ data DFM = DFM
   , startState       :: !State
   , transitionsTable :: !TransitionTable
   , transitions      :: !( Set.Set Matcher )
-  , lastID           :: !State
+  , freeID           :: !State
   } deriving Show
 
 fromNDFM :: NDFM.NDFM -> DFM
@@ -67,7 +67,7 @@ buildDFM DTable{..} = DFM finish initID finStates trans lastState
     finStates :: TransitionTable
     finStates = Map.foldlWithKey
       ( \ group ( from, m ) to -> Map.insertWith (++) ( states Map.! from ) [ ( m, states Map.! to ) ] group )
-      Map.empty table
+      ( Map.fromList ( map (\x -> (x, [])) finish ) ) table
 
 buildDTable :: NDFM.NDFM -> DTable
 buildDTable NDFM.NDFM{..} = step newDTable
@@ -128,60 +128,73 @@ matchDFM DFM{..} = finite . foldM move startState
 closureDFM :: DFM -> DFM
 closureDFM dfm@DFM{..} =
     dfm{ transitionsTable = closuredTable
-       , lastID = q
+       , freeID = nextFreeID freeID
        }
   where
-    q = nextFreeID lastID
-    closureRow = map ( \x -> ( x, q ) ) trans
+    closureRow = map ( \x -> ( x, freeID ) ) trans
     trans = Set.toList transitions
 
     closuredTable :: TransitionTable
     closuredTable
-      = Map.insert q closureRow
+      = Map.insert freeID closureRow
       $ Map.map (\ v -> map
-        ( \m -> fromMaybe ( m, q ) ( find ( (==) m . fst ) v ) )
+        ( \m -> fromMaybe ( m, freeID ) ( find ( (==) m . fst ) v ) )
         trans )
-        ( foldl
-          ( \t s -> Map.insertWith ( const id ) s [] t )
-          transitionsTable
-          finiteStates )
+        transitionsTable
 
-newtype GroupID = GroupID State
-  deriving ( Eq )
-
-instance Show GroupID where
-  show ( GroupID a ) = show a
-
+type GroupID = State
 type Groups = Set.Set ( Set.Set State )
 
 group :: DFM -> DFM
-group dfm@DFM{..} = undefined
+group dfm@DFM{..} = split initGroups
   where
-    initGroups = Set.fromList [ Set.fromList finiteStates,
-                                Set.fromList $ Map.keys transitionsTable \\ finiteStates ]
+    initGroups = Set.fromList
+      [ Set.fromList finiteStates
+      , Set.fromList $ Map.keys transitionsTable \\ finiteStates
+      ]
 
-    split :: Groups -> Groups
-    split groups
-      = if groups == splited then splited else split splited
+    split :: Groups -> DFM
+    split groups = if groups == splitted
+        then dfm{ startState = groupIDs Map.!
+                    head ( Set.toList $ head $
+                           Set.toList $ Set.filter ( startState `Set.member` ) splitted )
+                , finiteStates = Set.toList
+                    $ Set.map ( \ l -> groupIDs Map.! head ( Set.toList l ) )
+                    $ Set.filter ( \l -> any ( `Set.member` l) finiteStates )
+                    splitted
+                , freeID = iterate nextFreeID initID !! Set.size splitted
+                , transitionsTable = Map.fromList
+                    $ map newState $ Set.toList splitted
+                }
+        else split splitted
       where
-        stateIDs = Map.keys transitionsTable
+        newState :: Set.Set State -> ( State, [ ( Matcher, State ) ] )
+        newState set = ( groupIDs Map.! s, map ( second ( (Map.!) groupIDs ) ) tr )
+          where s = head $ Set.toList set
+                tr = ( transitionsTable Map.! s ) :: [ ( Matcher, State ) ]
 
-        idToGroup :: Map.Map State GroupID
-        idToGroup = snd $
+        idToGroup, groupIDs :: Map.Map State GroupID
+        idToGroup = groupMap groups
+        groupIDs = groupMap splitted
+
+        groupMap :: Groups -> Map.Map State GroupID
+        groupMap = snd .
           Set.foldl (\(lastID, pairs ) group ->
-            ( nextFreeID lastID, Set.foldl (\l s -> Map.insert s ( GroupID lastID ) l ) pairs group ) )
+            ( nextFreeID lastID,
+              Set.foldl
+                (\l s -> Map.insert s lastID l )
+                pairs group ) )
           ( initID, Map.empty )
-          groups
 
         stateToGroups :: Map.Map State ( Map.Map Matcher GroupID )
         stateToGroups = Map.map
           ( Map.fromList . map ( second ( ( Map.! ) idToGroup ) ) )
           transitionsTable
 
-        splited :: Groups
-        splited = Set.map Set.fromList $ Set.fromList $
+        splitted :: Groups
+        splitted = Set.map Set.fromList $ Set.fromList $
           groupBy ( (==) `on` (Map.!) stateToGroups )
-          stateIDs
+          ( Map.keys transitionsTable )
 
 minimize :: DFM -> DFM
 minimize = undefined
