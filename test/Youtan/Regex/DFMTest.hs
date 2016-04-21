@@ -18,3 +18,7 @@ spec = do
   context "matchDFM . group . fromNDFM" $
     forM_ cases $ \ ( regex, input, result, name ) ->
       it name $ matchDFM ( group ( fromNDFM ( NDFM.fromString regex ) ) ) input `shouldBe` result
+
+  context "matchDFM . minimize . fromNDFM" $
+    forM_ cases $ \ ( regex, input, result, name ) ->
+      it name $ matchDFM ( minimize ( fromNDFM ( NDFM.fromString regex ) ) ) input `shouldBe` result

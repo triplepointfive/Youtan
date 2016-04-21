@@ -5,7 +5,7 @@ module Youtan.Regex.DFM where
 
 import Control.Arrow ( second )
 import Control.Monad ( foldM )
-import Data.List ( find, (\\), groupBy )
+import Data.List ( find, (\\), groupBy, intercalate )
 import Data.Function ( on )
 import Data.Maybe ( catMaybes, listToMaybe, fromMaybe )
 import qualified Data.Map.Strict as Map
@@ -146,58 +146,80 @@ type GroupID = State
 type Groups = Set.Set ( Set.Set State )
 
 group :: DFM -> DFM
-group dfm@DFM{..} = split initGroups
+group dfm@DFM{..} = buildFromGroups $ while (/=) split initGroups
   where
     initGroups = Set.fromList
       [ Set.fromList finiteStates
       , Set.fromList $ Map.keys transitionsTable \\ finiteStates
       ]
 
-    split :: Groups -> DFM
-    split groups = if groups == splitted
-        then dfm{ startState = groupIDs Map.!
-                    head ( Set.toList $ head $
-                           Set.toList $ Set.filter ( startState `Set.member` ) splitted )
-                , finiteStates = Set.toList
-                    $ Set.map ( \ l -> groupIDs Map.! head ( Set.toList l ) )
-                    $ Set.filter ( \l -> any ( `Set.member` l) finiteStates )
-                    splitted
-                , freeID = iterate nextFreeID initID !! Set.size splitted
-                , transitionsTable = Map.fromList
-                    $ map newState $ Set.toList splitted
-                }
-        else split splitted
+    groupMap :: Groups -> Map.Map State GroupID
+    groupMap = snd .
+      Set.foldl (\(lastID, pairs ) group ->
+        ( nextFreeID lastID,
+          Set.foldl
+            (\l s -> Map.insert s lastID l )
+            pairs group ) )
+      ( initID, Map.empty )
+
+    buildFromGroups :: Groups -> DFM
+    buildFromGroups splitted = DFM
+      { startState = groupIDs Map.!
+          head ( Set.toList $ head $
+                 Set.toList $ Set.filter ( startState `Set.member` ) splitted )
+      , finiteStates = Set.toList
+          $ Set.map ( \ l -> groupIDs Map.! head ( Set.toList l ) )
+          $ Set.filter ( \l -> any ( `Set.member` l) finiteStates )
+          splitted
+      , freeID = iterate nextFreeID initID !! Set.size splitted
+      , transitionsTable = Map.fromList $ map newState $ Set.toList splitted
+      , transitions = transitions
+      }
       where
+        groupIDs :: Map.Map State GroupID
+        groupIDs = groupMap splitted
+
         newState :: Set.Set State -> ( State, [ ( Matcher, State ) ] )
         newState set = ( groupIDs Map.! s, map ( second ( (Map.!) groupIDs ) ) tr )
           where s = head $ Set.toList set
                 tr = ( transitionsTable Map.! s ) :: [ ( Matcher, State ) ]
 
-        idToGroup, groupIDs :: Map.Map State GroupID
+    split :: Groups -> Groups
+    split groups = Set.fromList
+        $ map Set.fromList
+        $ intercalate []
+        $ map ( groupBy ( (==) `on` (Map.!) stateToGroups ) . Set.toList )
+          ( Set.toList groups )
+      where
+        idToGroup :: Map.Map State GroupID
         idToGroup = groupMap groups
-        groupIDs = groupMap splitted
-
-        groupMap :: Groups -> Map.Map State GroupID
-        groupMap = snd .
-          Set.foldl (\(lastID, pairs ) group ->
-            ( nextFreeID lastID,
-              Set.foldl
-                (\l s -> Map.insert s lastID l )
-                pairs group ) )
-          ( initID, Map.empty )
 
         stateToGroups :: Map.Map State ( Map.Map Matcher GroupID )
         stateToGroups = Map.map
           ( Map.fromList . map ( second ( ( Map.! ) idToGroup ) ) )
           transitionsTable
 
-        splitted :: Groups
-        splitted = Set.map Set.fromList $ Set.fromList $
-          groupBy ( (==) `on` (Map.!) stateToGroups )
-          ( Map.keys transitionsTable )
+while :: ( a -> a -> Bool ) -> ( a -> a ) -> a -> a
+while con f v = let step x y = if x `con` y then step ( f x ) x else x
+                in step ( f v ) v
 
 minimize :: DFM -> DFM
-minimize = undefined
+minimize = clean . group . closureDFM
+
+clean :: DFM -> DFM
+clean dfm@DFM{..} = dfm{ transitionsTable = withoutLinks }
+  where
+    withoutLinks = Map.map ( filter ( ( `notElem` uselessStates ) . snd ) ) withoutStates
+
+    withoutStates :: TransitionTable
+    withoutStates = foldl ( flip Map.delete ) transitionsTable uselessStates
+
+    uselessStates :: [ State ]
+    uselessStates
+      = Map.keys
+      $ Map.filterWithKey
+        ( \ k s -> ( k `notElem` finiteStates ) && all ( (==) k . snd ) s )
+        transitionsTable
 
 match :: String -> String -> Bool
 match regex = matchDFM ( fromString regex )
