@@ -3,23 +3,26 @@
 -- | Implementation of DFM.
 module Youtan.Regex.DFM where
 
-import Control.Arrow ( second )
+import Control.Arrow ( first, second )
 import Control.Monad ( foldM )
 import Data.List ( find, (\\), groupBy, intercalate )
 import Data.Function ( on )
 import Data.Maybe ( catMaybes, listToMaybe, fromMaybe )
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import Control.Monad.State
 
 import qualified Youtan.Regex.NDFM as NDFM ( State( .. ), NDFM( .. ), StateID )
+import Youtan.Regex.Operators ( Counter(..), Operator(..), parseString, OperatorID )
+import qualified Youtan.Regex.Operators as O ( initID, nextFreeID )
 import Youtan.Regex.FM
 
-type State = Char
+type StateID = Char
 
-initID :: State
+initID :: StateID
 initID = 'a'
 
-nextFreeID :: State -> State
+nextFreeID :: StateID -> StateID
 nextFreeID = succ
 
 type DState = Set.Set NDFM.StateID
@@ -32,14 +35,14 @@ data DTable
   , finishState :: !NDFM.StateID
   } deriving ( Eq, Show )
 
-type TransitionTable = Map.Map State [ ( Matcher, State ) ]
+type TransitionTable = Map.Map StateID [ ( Matcher, StateID ) ]
 
 data DFM = DFM
-  { finiteStates     :: ![ State ]
-  , startState       :: !State
+  { finiteStates     :: ![ StateID ]
+  , startState       :: !StateID
   , transitionsTable :: !TransitionTable
   , transitions      :: !( Set.Set Matcher )
-  , freeID           :: !State
+  , freeID           :: !StateID
   } deriving Show
 
 fromNDFM :: NDFM.NDFM -> DFM
@@ -53,10 +56,10 @@ markState dtable@DTable{..} = ( Set.elemAt 0 states2,
 buildDFM :: DTable -> DFM
 buildDFM DTable{..} = DFM finish initID finStates trans lastState
   where
-    finish :: [ State ]
+    finish :: [ StateID ]
     finish = map snd $ Map.toList $ Map.filterWithKey ( \ k _ -> Set.member finishState k ) states
 
-    states :: Map.Map ( Set.Set NDFM.StateID ) State
+    states :: Map.Map ( Set.Set NDFM.StateID ) StateID
     states = Map.fromList $ zip ( Set.toList processed ) ( iterate nextFreeID initID )
 
     lastState = iterate nextFreeID initID !! Map.size states
@@ -110,19 +113,41 @@ buildDTable NDFM.NDFM{..} = step newDTable
              then d
              else d{ states2 = Set.insert u ( states2 d ) }
 
-fromString :: String -> DFM
+-- fromString :: String -> DFM
 fromString str = undefined
+  where
+    rawTree, tree :: Operator
+    rawTree = parseString str
+    tree = evalState ( assignIDs rawTree ) O.initID
+
+    nextID :: State OperatorID OperatorID
+    nextID = modify O.nextFreeID >> get
+
+    nullable :: Map.Map OperatorID Bool
+    nullable = undefined
+
+    assignIDs :: Operator -> State OperatorID Operator
+    assignIDs ( Empty _ ) = Empty <$> nextID
+    assignIDs ( Literal _ c ) = Literal <$> nextID <*> return c
+    assignIDs ( Concatenation _ oper1 oper2 )
+      = Concatenation <$> nextID <*> assignIDs oper1 <*> assignIDs oper2
+    assignIDs ( Disjunction _ oper1 oper2 )
+      = Disjunction <$> nextID <*> assignIDs oper1 <*> assignIDs oper2
+    assignIDs ( Counts _ c oper )
+      = Counts <$> nextID <*> return c <*> assignIDs oper
+    assignIDs ( CharClass _ c ) = CharClass <$> nextID <*> return c
+    assignIDs ( Group oper ) = Group <$> assignIDs oper
 
 matchDFM :: DFM -> String -> Bool
 matchDFM DFM{..} = finite . foldM move startState
   where
-    finite :: Maybe State -> Bool
+    finite :: Maybe StateID -> Bool
     finite = maybe False ( `elem` finiteStates )
 
-    move :: State -> Symbol -> Maybe State
+    move :: StateID -> Symbol -> Maybe StateID
     move state = listToMaybe . matchState ( states state )
       where
-        states :: State -> [ ( Matcher, State ) ]
+        states :: StateID -> [ ( Matcher, StateID ) ]
         states = fromMaybe [] . flip Map.lookup transitionsTable
 
 closureDFM :: DFM -> DFM
@@ -142,8 +167,8 @@ closureDFM dfm@DFM{..} =
         trans )
         transitionsTable
 
-type GroupID = State
-type Groups = Set.Set ( Set.Set State )
+type GroupID = StateID
+type Groups = Set.Set ( Set.Set StateID )
 
 group :: DFM -> DFM
 group dfm@DFM{..} = buildFromGroups $ while (/=) split initGroups
@@ -153,7 +178,7 @@ group dfm@DFM{..} = buildFromGroups $ while (/=) split initGroups
       , Set.fromList $ Map.keys transitionsTable \\ finiteStates
       ]
 
-    groupMap :: Groups -> Map.Map State GroupID
+    groupMap :: Groups -> Map.Map StateID GroupID
     groupMap = snd .
       Set.foldl (\(lastID, pairs ) group ->
         ( nextFreeID lastID,
@@ -176,13 +201,13 @@ group dfm@DFM{..} = buildFromGroups $ while (/=) split initGroups
       , transitions = transitions
       }
       where
-        groupIDs :: Map.Map State GroupID
+        groupIDs :: Map.Map StateID GroupID
         groupIDs = groupMap splitted
 
-        newState :: Set.Set State -> ( State, [ ( Matcher, State ) ] )
+        newState :: Set.Set StateID -> ( StateID, [ ( Matcher, StateID ) ] )
         newState set = ( groupIDs Map.! s, map ( second ( (Map.!) groupIDs ) ) tr )
           where s = head $ Set.toList set
-                tr = ( transitionsTable Map.! s ) :: [ ( Matcher, State ) ]
+                tr = ( transitionsTable Map.! s ) :: [ ( Matcher, StateID ) ]
 
     split :: Groups -> Groups
     split groups = Set.fromList
@@ -191,10 +216,10 @@ group dfm@DFM{..} = buildFromGroups $ while (/=) split initGroups
         $ map ( groupBy ( (==) `on` (Map.!) stateToGroups ) . Set.toList )
           ( Set.toList groups )
       where
-        idToGroup :: Map.Map State GroupID
+        idToGroup :: Map.Map StateID GroupID
         idToGroup = groupMap groups
 
-        stateToGroups :: Map.Map State ( Map.Map Matcher GroupID )
+        stateToGroups :: Map.Map StateID ( Map.Map Matcher GroupID )
         stateToGroups = Map.map
           ( Map.fromList . map ( second ( ( Map.! ) idToGroup ) ) )
           transitionsTable
@@ -214,12 +239,12 @@ clean dfm@DFM{..} = dfm{ transitionsTable = withoutLinks }
     withoutStates :: TransitionTable
     withoutStates = foldl ( flip Map.delete ) transitionsTable uselessStates
 
-    uselessStates :: [ State ]
+    uselessStates :: [ StateID ]
     uselessStates
       = Map.keys
       $ Map.filterWithKey
         ( \ k s -> ( k `notElem` finiteStates ) && all ( (==) k . snd ) s )
         transitionsTable
 
-match :: String -> String -> Bool
-match regex = matchDFM ( fromString regex )
+-- match :: String -> String -> Bool
+-- match regex = matchDFM ( fromString regex )

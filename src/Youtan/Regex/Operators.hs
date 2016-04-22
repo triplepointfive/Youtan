@@ -1,6 +1,14 @@
 -- | Module for parsing strings into an operators tree according to
 -- base regex rules.
-module Youtan.Regex.Operators where
+module Youtan.Regex.Operators
+( initID
+, nextFreeID
+, parseString
+, CharacterClass(..)
+, Counter(..)
+, Operator(..)
+, OperatorID
+) where
 
 import Data.Tuple ( swap )
 
@@ -48,7 +56,7 @@ data Counter
   | OneOrMore
   -- | Optional, but one time at most.
   | ZeroOrOne
-  deriving ( Eq )
+  deriving ( Eq, Ord )
 
 -- | For better display.
 instance Show Counter where
@@ -56,23 +64,34 @@ instance Show Counter where
   show OneOrMore = "+"
   show ZeroOrOne = "?"
 
+-- | ID of an operator.
+type OperatorID = Int
+
+-- | The default value for all operators nodes.
+initID :: OperatorID
+initID = 0
+
+-- | Returns next ID in a chain.
+nextFreeID :: OperatorID -> OperatorID
+nextFreeID = succ
+
 -- | Action on matching input.
 data Operator
   -- | Blank operator, for empty strings etc. Matches nothing only.
-  = Empty
+  = Empty OperatorID
   -- | Single arbitrary character.
-  | Literal Char
+  | Literal OperatorID Char
   -- | A sequence of two operators.
-  | Concatenation Operator Operator
+  | Concatenation OperatorID Operator Operator
   -- | A separator, means at least one branch must match.
-  | Disjunction Operator Operator
+  | Disjunction OperatorID Operator Operator
   -- | Counter on 'Operator', could go from 0 up to inf.
-  | Counts Counter Operator
+  | Counts OperatorID Counter Operator
   -- | A set of literals.
-  | CharClass CharacterClass
+  | CharClass OperatorID CharacterClass
   -- | A union of operators. Could be used to apply something on a set of them.
   | Group Operator
-  deriving ( Show, Eq )
+  deriving ( Show, Eq, Ord )
 
 -- | When one counter is applied to another that doesn't make much sense to
 -- treat them separately. Could be traversed to one counter instead.
@@ -103,11 +122,11 @@ class Parser parser where
 
   -- | Action for 'Class' token.
   onClass :: CharacterClass -> parser -> Tokens -> ( Tokens, parser )
-  onClass charClass = action ( `merge` CharClass charClass )
+  onClass charClass = action ( `merge` CharClass initID charClass )
 
   -- | Action for 'Character' token.
   onChar :: Char -> parser -> Tokens -> ( Tokens, parser )
-  onChar x = action ( `merge` Literal x )
+  onChar x = action ( `merge` Literal initID x )
 
   -- | Action for 'Times' token.
   onCounter :: Counter -> parser -> Tokens -> ( Tokens, parser )
@@ -116,18 +135,18 @@ class Parser parser where
       -- | Applies counter to an operator. The only thing counter respects is
       -- concationation, all the rest could be wrapped.
       count :: Operator -> Operator
-      count ( Concatenation oper1 oper2 ) = Concatenation oper1 ( count oper2 )
-      count ( Group counter@( Counts _ _ ) ) = Group ( count counter )
-      count ( Counts counter oper ) = Counts ( mergeCounters c counter ) oper
-      count Empty    = error $
+      count ( Concatenation _ oper1 oper2 ) = Concatenation initID oper1 ( count oper2 )
+      count ( Group counter@Counts{} ) = Group ( count counter )
+      count ( Counts _ counter oper ) = Counts initID ( mergeCounters c counter ) oper
+      count ( Empty _ )  = error $
         "Target of repeat operator " ++ show c ++ " is not specified"
-      count operator = Counts c operator
+      count operator = Counts initID c operator
 
   -- | Action for 'Separate' token.
   onDisjunction :: parser -> Tokens -> ( Tokens, parser )
-  onDisjunction parser xs = ( rest, mapOperator parser ( `Disjunction` oper ) )
+  onDisjunction parser xs = ( rest, mapOperator parser (\ x -> Disjunction initID x oper ) )
     where
-      ( rest, DisjunctionParser oper ) = parse ( DisjunctionParser Empty ) xs
+      ( rest, DisjunctionParser oper ) = parse ( DisjunctionParser ( Empty initID ) ) xs
 
   -- | Action for 'OpenGroup' token.
   onOpenGroup :: parser -> Tokens -> ( Tokens, parser )
@@ -162,7 +181,7 @@ instance Parser TopParser where
   onStringEnd = id
 
   onOpenGroup ( TopParser operator ) xs = parse ( TopParser ( operator `merge` Group gOper ) ) gRest
-    where ( gRest, GroupParser gOper ) = parse ( GroupParser Empty ) xs
+    where ( gRest, GroupParser gOper ) = parse ( GroupParser ( Empty initID ) ) xs
   onCloseGroup = error "Unexpected close group token"
 
   getOperator ( TopParser operator ) = operator
@@ -199,7 +218,7 @@ instance Parser GroupParser where
 
 -- | Translates a regex looking like string into a tree of operators.
 parseString :: String -> Operator
-parseString = build ( TopParser Empty ) . tokenize
+parseString = build ( TopParser ( Empty initID ) ) . tokenize
 
 -- | Does exactly what it says on the tin.
 tokenize :: String -> Tokens
@@ -246,8 +265,9 @@ tokenize = reverse . step []
 -- | Kludge for parsers with no operator ('Empty') yet. Kinda blame function,
 -- but much better than wrapping it with 'Maybe'.
 merge :: Operator -> Operator -> Operator
-merge Empty operator      = operator
-merge operator Empty      = operator
-merge ( Disjunction Empty disOper ) operator = Disjunction operator disOper
-merge ( Disjunction disOper Empty ) operator = Disjunction disOper operator
-merge operator1 operator2 = Concatenation operator1 operator2
+merge ( Empty _ ) operator = operator
+merge operator ( Empty _ ) = operator
+merge ( Disjunction _ ( Empty _ ) disOper ) operator
+  = Disjunction initID operator disOper
+merge ( Disjunction _ disOper ( Empty _ ) ) operator = Disjunction initID disOper operator
+merge operator1 operator2 = Concatenation initID operator1 operator2

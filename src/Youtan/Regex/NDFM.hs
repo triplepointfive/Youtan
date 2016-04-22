@@ -80,24 +80,24 @@ isFiniteState NDFM{..} = ( == ) finishState
 
 -- | Builder of NDFM according to operators tree
 with :: Operator -> StateID -> NDFM
-with Empty lastID = NDFM lastID litID ( Map.fromList states )
+with ( Empty _ ) lastID = NDFM lastID litID ( Map.fromList states )
   where
     litID = nextFreeID lastID
     states = [ ( lastID, emptyBranchState litID ), ( litID, emptyState ) ]
-with ( Literal x ) lastID = NDFM lastID litID ( Map.fromList states )
+with ( Literal _ x ) lastID = NDFM lastID litID ( Map.fromList states )
   where
     litID = nextFreeID lastID
     states = [ ( lastID, branchState ( Exact x ) litID ), ( litID, emptyState ) ]
-with ( CharClass chClass ) lastID = NDFM lastID litID ( Map.fromList states )
+with ( CharClass _ chClass ) lastID = NDFM lastID litID ( Map.fromList states )
   where
     litID = nextFreeID lastID
     states = [ ( lastID, branchState ( Class chClass ) litID ), ( litID, emptyState ) ]
-with ( Concatenation oper1 oper2 ) lastID = NDFM lastID finish2 allStates
+with ( Concatenation _ oper1 oper2 ) lastID = NDFM lastID finish2 allStates
   where
     ( NDFM _ finish1 states1 ) = with oper1 lastID
     ( NDFM _ finish2 states2 ) = with oper2 finish1
     allStates = Map.union states2 states1
-with ( Disjunction oper1 oper2 ) lastID = NDFM lastID lastNodeID allStates
+with ( Disjunction _ oper1 oper2 ) lastID = NDFM lastID lastNodeID allStates
   where
     node1StartID = nextFreeID lastID
     node2StartID = nextFreeID finish1
@@ -108,7 +108,7 @@ with ( Disjunction oper1 oper2 ) lastID = NDFM lastID lastNodeID allStates
     withFinish = foldl ( flip ( `link` lastNodeID  ) ) unionStates [ finish1, finish2 ]
     withLastNode = Map.insert lastNodeID emptyState withFinish
     allStates = Map.insert lastID ( emptyBranchesState node1StartID node2StartID ) withLastNode
-with ( Counts counter operator ) lastID =
+with ( Counts _ counter operator ) lastID =
   countNode counter ( with operator ( nextFreeID lastID ) ) lastID
 with ( Group operator ) lastID = with operator lastID
 
