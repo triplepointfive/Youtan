@@ -197,7 +197,8 @@ instance Parser DisjunctionParser where
 
   onCloseGroup = curry swap
 
-  onOpenGroup = error "Unexpected open group token"
+  onOpenGroup ( DisjunctionParser operator ) xs = parse ( DisjunctionParser ( operator `merge` Group gOper ) ) gRest
+    where ( gRest, GroupParser gOper ) = parse ( GroupParser ( Empty initID ) ) xs
 
   getOperator ( DisjunctionParser operator ) = operator
   setOperator ( DisjunctionParser _ ) = DisjunctionParser
@@ -210,7 +211,8 @@ data GroupParser = GroupParser Operator
 instance Parser GroupParser where
   onCloseGroup ( GroupParser operator ) xs = ( xs, GroupParser operator )
 
-  onOpenGroup = error "Unexpected open group token"
+  onOpenGroup ( GroupParser operator ) xs = parse ( GroupParser ( operator `merge` Group gOper ) ) gRest
+    where ( gRest, GroupParser gOper ) = parse ( GroupParser ( Empty initID ) ) xs
   onStringEnd = error "Unexpected end of line, expected close group token"
 
   getOperator ( GroupParser operator ) = operator

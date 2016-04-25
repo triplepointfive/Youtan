@@ -3,8 +3,7 @@
 -- | Implementation of DFM.
 module Youtan.Regex.DFM where
 
-import Control.Arrow ( first, second )
-import Control.Monad ( foldM )
+import Control.Arrow ( second )
 import Data.List ( find, (\\), groupBy, intercalate )
 import Data.Function ( on )
 import Data.Maybe ( catMaybes, listToMaybe, fromMaybe )
@@ -16,6 +15,7 @@ import qualified Youtan.Regex.NDFM as NDFM ( State( .. ), NDFM( .. ), StateID )
 import Youtan.Regex.Operators ( Counter(..), Operator(..), parseString, OperatorID )
 import qualified Youtan.Regex.Operators as O ( initID, nextFreeID )
 import Youtan.Regex.FM
+import Youtan.Regex.OperatorsExtra ( assignIDs, simplifyCounter, operID )
 
 type StateID = Char
 
@@ -33,6 +33,7 @@ data DTable
   , processed   :: !( Set.Set DState )
   , states2     :: !( Set.Set DState )
   , finishState :: !NDFM.StateID
+  , startState2 :: !( Maybe DState )
   } deriving ( Eq, Show )
 
 type TransitionTable = Map.Map StateID [ ( Matcher, StateID ) ]
@@ -54,8 +55,10 @@ markState dtable@DTable{..} = ( Set.elemAt 0 states2,
           processed = Set.insert ( Set.elemAt 0 states2 ) processed } )
 
 buildDFM :: DTable -> DFM
-buildDFM DTable{..} = DFM finish initID finStates trans lastState
+buildDFM DTable{..} = DFM finish st finStates trans lastState
   where
+    st = maybe initID ( \ x -> states Map.! x ) startState2
+
     finish :: [ StateID ]
     finish = map snd $ Map.toList $ Map.filterWithKey ( \ k _ -> Set.member finishState k ) states
 
@@ -79,6 +82,7 @@ buildDTable NDFM.NDFM{..} = step newDTable
       Set.empty
       ( Set.singleton $ eClosure ( Set.singleton startState ) )
       finishState
+      Nothing
 
     eClosure :: Set.Set NDFM.StateID -> Set.Set NDFM.StateID
     eClosure = Set.foldl Set.union Set.empty . Set.map closure
@@ -113,30 +117,147 @@ buildDTable NDFM.NDFM{..} = step newDTable
              then d
              else d{ states2 = Set.insert u ( states2 d ) }
 
--- fromString :: String -> DFM
-fromString str = undefined
+type Nullable = Map.Map OperatorID Bool
+type Posable = Map.Map OperatorID ( Set.Set OperatorID )
+
+type S = Set.Set OperatorID
+type Table = Map.Map ( S, Matcher ) S
+
+fromString :: String -> DFM
+fromString str =
+  -- error $
+    -- show tree ++ "\n\n" ++
+    -- show nullable ++ "\n\n" ++
+    -- show firstPos ++ "\n\n" ++
+    -- show lastPos ++ "\n\n" ++
+    -- show followPos
+  buildDFM $ DTable
+    states
+    ( Set.fromList $ Set.singleton O.initID : map fst ( Map.keys states )  )
+    Set.empty
+    O.initID
+    ( Just ( firstPos Map.! operID tree ) )
   where
-    rawTree, tree :: Operator
-    rawTree = parseString str
-    tree = evalState ( assignIDs rawTree ) O.initID
+    rawTree :: Operator
+    rawTree = simplifyCounter $ parseString str
 
-    nextID :: State OperatorID OperatorID
-    nextID = modify O.nextFreeID >> get
+    tree :: Operator
+    tree = Concatenation ( O.nextFreeID O.initID )
+      ( evalState ( assignIDs rawTree ) ( O.nextFreeID O.initID ) )
+      ( Literal O.initID '#' )
 
-    nullable :: Map.Map OperatorID Bool
-    nullable = undefined
+    operators :: Map.Map OperatorID Matcher
+    operators = evalState ( step tree >> get ) Map.empty
+      where
+        add :: Matcher -> OperatorID -> State ( Map.Map OperatorID Matcher ) ()
+        add m o = modify ( Map.insert o m )
 
-    assignIDs :: Operator -> State OperatorID Operator
-    assignIDs ( Empty _ ) = Empty <$> nextID
-    assignIDs ( Literal _ c ) = Literal <$> nextID <*> return c
-    assignIDs ( Concatenation _ oper1 oper2 )
-      = Concatenation <$> nextID <*> assignIDs oper1 <*> assignIDs oper2
-    assignIDs ( Disjunction _ oper1 oper2 )
-      = Disjunction <$> nextID <*> assignIDs oper1 <*> assignIDs oper2
-    assignIDs ( Counts _ c oper )
-      = Counts <$> nextID <*> return c <*> assignIDs oper
-    assignIDs ( CharClass _ c ) = CharClass <$> nextID <*> return c
-    assignIDs ( Group oper ) = Group <$> assignIDs oper
+        step :: Operator -> State ( Map.Map OperatorID Matcher ) ()
+        step ( Empty _ ) = return ()
+        step ( Literal i l ) = add ( Exact l ) i
+        step ( Disjunction _ oper1 oper2 ) =
+          step oper1 >> step oper2
+        step ( Concatenation _ oper1 oper2 ) =
+          step oper1 >> step oper2
+        step ( Counts _ _ oper ) = step oper
+        step ( CharClass i c ) = add ( Class c ) i
+        step ( Group oper ) = step oper
+
+    states :: Table
+    states = step ( [ initID ], [], Map.empty )
+      where
+        initID = firstPos Map.! operID tree
+
+        step :: ( [ S ], [ S ], Table ) -> Table
+        step (   [], _, tran ) = tran
+        step ( t:xs, d, tran ) = step $ Set.foldl buildTrans ( xs, t : d, tran ) t
+          where
+            buildTrans :: ( [ S ], [ S ], Table ) -> OperatorID -> ( [ S ], [ S ], Table )
+            buildTrans ( unmarked, marked, tran ) p =
+              if Map.member p followPos then
+                ( if ( u `notElem` unmarked ) && ( u `notElem` marked )
+                     then u:unmarked
+                     else unmarked
+                , marked
+                , Map.insert ( t, m ) u tran
+                )
+              else
+                ( unmarked, marked, tran )
+              where
+                m = operators Map.! p
+                u = followPos Map.! p
+
+    set :: Ord o => o -> a -> State ( Map.Map o a ) a
+    set operatorID val = modify ( Map.insert operatorID val ) >> return val
+
+    nullable :: Nullable
+    nullable = evalState ( step tree >> get ) Map.empty
+      where
+        step :: Operator -> State Nullable Bool
+        step ( Empty i ) = set i True
+        step ( Literal i _ ) = set i False
+        step ( Disjunction i oper1 oper2 )
+          = (||) <$> step oper1 <*> step oper2 >>= set i
+        step ( Concatenation i oper1 oper2 )
+          = (&&) <$> step oper1 <*> step oper2 >>= set i
+        step ( Counts i c oper ) = case c of
+          KleeneStar -> step oper >> set i True
+          OneOrMore -> step oper >>= set i
+          ZeroOrOne -> step oper >> set i True
+        step ( CharClass i _ ) = set i False
+        step ( Group oper ) = step oper
+
+    firstPos :: Posable
+    firstPos = evalState ( step tree >> get ) Map.empty
+      where
+        step :: Operator -> State Posable ( Set.Set OperatorID )
+        step ( Empty i ) = set i Set.empty
+        step ( Literal i _ ) = set i ( Set.singleton i )
+        step ( Disjunction i oper1 oper2 ) =
+          ( Set.union <$> step oper1 <*> step oper2 ) >>= set i
+        step ( Concatenation i oper1 oper2 )
+          | nullable Map.! operID oper1 =
+            ( Set.union <$> step oper1 <*> step oper2 ) >>= set i
+          | otherwise = step oper2 >> step oper1 >>= set i
+        step ( Counts i _ oper ) = step oper >>= set i
+        step ( CharClass i _ ) = set i ( Set.singleton i )
+        step ( Group oper ) = step oper
+
+    lastPos :: Posable
+    lastPos = evalState ( step tree >> get ) Map.empty
+      where
+        step :: Operator -> State Posable ( Set.Set OperatorID )
+        step ( Empty i ) = set i Set.empty
+        step ( Literal i _ ) = set i ( Set.singleton i )
+        step ( Disjunction i oper1 oper2 ) =
+          ( Set.union <$> step oper1 <*> step oper2 ) >>= set i
+        step ( Concatenation i oper1 oper2 )
+          | nullable Map.! operID oper2 =
+            ( Set.union <$> step oper1 <*> step oper2 ) >>= set i
+          | otherwise = step oper1 >> step oper2 >>= set i
+        step ( Counts i _ oper ) = step oper >>= set i
+        step ( CharClass i _ ) = set i ( Set.singleton i )
+        step ( Group oper ) = step oper
+
+    followPos :: Posable
+    followPos = evalState ( step tree >> get ) Map.empty
+      where
+        add :: Set.Set OperatorID -> OperatorID -> State Posable ()
+        add ids operatorID = modify
+          ( Map.alter ( Just . maybe ids ( Set.union ids ) ) operatorID )
+
+        step :: Operator -> State Posable ()
+        step ( Empty _ ) = return ()
+        step ( Literal _ _ ) = return ()
+        step ( Disjunction _ oper1 oper2 ) = step oper1 >> step oper2
+        step ( Concatenation _ oper1 oper2 ) =
+          let a = operID oper1; b = operID oper2
+          in step oper1 >> step oper2 >>
+            forM_ ( lastPos Map.! a ) ( add ( firstPos Map.! b ) )
+        step ( Counts _ _ oper ) = let a = operID oper in
+          step oper >> forM_ ( lastPos Map.! a ) ( add ( firstPos Map.! a ) )
+        step ( CharClass _ _ ) = return ()
+        step ( Group oper ) = step oper
 
 matchDFM :: DFM -> String -> Bool
 matchDFM DFM{..} = finite . foldM move startState
@@ -246,5 +367,5 @@ clean dfm@DFM{..} = dfm{ transitionsTable = withoutLinks }
         ( \ k s -> ( k `notElem` finiteStates ) && all ( (==) k . snd ) s )
         transitionsTable
 
--- match :: String -> String -> Bool
--- match regex = matchDFM ( fromString regex )
+match :: String -> String -> Bool
+match regex = matchDFM ( fromString regex )

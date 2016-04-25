@@ -114,12 +114,6 @@ spec = context "parseString" $ do
     it "Group token is unclosed" $
       evaluate ( parseString "(ab" ) `shouldThrow` anyException
 
-    it "Group inside a group" $
-      evaluate ( parseString "((a))" ) `shouldThrow` anyException
-
-    it "Group in a disjunction" $
-      evaluate ( parseString "(a|(b))" ) `shouldThrow` anyException
-
     it "Unclosed char-class group" $
       evaluate ( parseString "[ab" ) `shouldThrow` anyException
 
@@ -131,4 +125,3 @@ spec = context "parseString" $ do
 
     it "Unexpected close group token" $
       evaluate ( parseString "ab)" ) `shouldThrow` anyException
-

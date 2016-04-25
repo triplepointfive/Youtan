@@ -1,8 +1,7 @@
 module Youtan.Regex.FMTestCases where
 
 -- TODO: Test repeaters applied to repeaters.
---
---
+-- TODO: Test groups inside groups.
 cases :: [ ( String, String, Bool, String ) ]
 cases =
   [ (             "",        "",  True, "Empty regex with empty string" )
