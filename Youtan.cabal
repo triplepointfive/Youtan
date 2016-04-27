@@ -16,8 +16,7 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   ghc-options:         -rtsopts -with-rtsopts=-N -Wall
-  exposed-modules:     Lib
-                     , Youtan.Regex.DFM
+  exposed-modules:     Youtan.Regex.DFM
                      , Youtan.Regex.FM
                      , Youtan.Regex.NDFM
                      , Youtan.Regex.Operators
@@ -27,6 +26,7 @@ library
                      , containers
                      , mtl
   default-language:    Haskell2010
+  other-modules:       Youtan.Utils
 
 executable Youtan-exe
   hs-source-dirs:      app

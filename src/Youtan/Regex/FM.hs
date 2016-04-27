@@ -1,3 +1,4 @@
+-- | Base functionallity, shared within DFM and NDFM.
 module Youtan.Regex.FM where
 
 import Data.Char ( isDigit, isAscii, isSpace )
@@ -6,6 +7,9 @@ import Youtan.Regex.Operators ( CharacterClass(..) )
 
 -- | A literal in input string.
 type Symbol = Char
+
+-- | An input string.
+type Input  = String
 
 -- | Extension for char matching, allows to match with 'CharacterClass'.
 data Matcher

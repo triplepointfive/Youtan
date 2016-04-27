@@ -15,9 +15,9 @@ spec = do
     forM_ cases $ \ ( regex, input, result, name ) ->
       it name $ matchDFM ( fromNDFM ( NDFM.fromString regex ) ) input `shouldBe` result
 
-  context "matchDFM . group . fromNDFM" $
+  context "matchDFM . squeeze . fromNDFM" $
     forM_ cases $ \ ( regex, input, result, name ) ->
-      it name $ matchDFM ( group ( fromNDFM ( NDFM.fromString regex ) ) ) input `shouldBe` result
+      it name $ matchDFM ( squeeze ( fromNDFM ( NDFM.fromString regex ) ) ) input `shouldBe` result
 
   context "matchDFM . minimize . fromNDFM" $
     forM_ cases $ \ ( regex, input, result, name ) ->

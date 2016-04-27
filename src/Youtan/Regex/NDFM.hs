@@ -10,9 +10,6 @@ import Data.Maybe ( isNothing, catMaybes )
 import Youtan.Regex.Operators ( Counter(..), Operator(..), parseString )
 import Youtan.Regex.FM
 
--- | An input string.
-type Input  = String
-
 -- | ID of a node, must be uniq within 'NDFM'.
 type StateID = Int
 
