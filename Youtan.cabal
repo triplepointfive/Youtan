@@ -18,11 +18,11 @@ library
   ghc-options:         -rtsopts -with-rtsopts=-N -Wall
   exposed-modules:     Youtan.Regex.DFM
                      , Youtan.Regex.FM
+                     , Youtan.Lexical.Grammar
                      , Youtan.Regex.NDFM
                      , Youtan.Regex.Operators
                      , Youtan.Regex.OperatorsExtra
   build-depends:       base >= 4.7 && < 5
-                     , parsec
                      , containers
                      , mtl
   default-language:    Haskell2010
