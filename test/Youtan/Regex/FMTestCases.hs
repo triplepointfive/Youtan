@@ -30,3 +30,13 @@ cases =
   , ( "(\\d\\d:?)+" ,  "12:34:",  True, "Nested counter matches few times")
   , ( "(\\d\\d:?)+" ,    "12:3", False, "Nested counter fails on second time")
   ]
+
+longestCases :: [ ( String, String, Maybe Int, String ) ]
+longestCases =
+  [ (    "abc",   "123", Nothing, "No matches" )
+  , (     "a*",   "bbb",  Just 0, "No matches with kleene" )
+  , (   "\\d+",   "123",  Just 3, "Matches the whole string" )
+  , (     "a*", "aaabb",  Just 3, "Longest possible match" )
+  , ( "(a|b)*", "aaabb",  Just 5, "Matches the whole string with options" )
+  , (   "/.*/", "/abc/",  Just 5, "Correctly matches even with wildchars" )
+  ]

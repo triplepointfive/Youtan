@@ -2,8 +2,14 @@
 
 -- | Implementation of DFM.
 module Youtan.Regex.DFM
-( fromNDFM
+( DFM
+, StateID
+, DState
+, DTable
+, fromNDFM
 , fromString
+, longestMatch
+, longestMatchDFM
 , match
 , matchDFM
 , minimize
@@ -11,12 +17,13 @@ module Youtan.Regex.DFM
 ) where
 
 import Control.Arrow ( first, second )
+import Control.Monad.State ( State, evalState, get, modify )
+import Control.Monad ( forM_, when, foldM )
 import Data.List ( find, (\\), groupBy, intercalate )
 import Data.Function ( on )
 import Data.Maybe ( catMaybes, listToMaybe, fromMaybe )
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import Control.Monad.State
 
 import qualified Youtan.Regex.NDFM as NDFM ( State( .. ), NDFM( .. ), StateID )
 import Youtan.Regex.Operators ( Counter(..), Operator(..), parseString, OperatorID )
@@ -280,19 +287,6 @@ fromString str =
         step ( CharClass _ _ ) = return ()
         step ( Group oper ) = step oper
 
--- | Checks whether 'DFM' accepts given string.
-matchDFM :: DFM -> String -> Bool
-matchDFM DFM{..} = finite . foldM move startState
-  where
-    finite :: Maybe StateID -> Bool
-    finite = maybe False ( `elem` finiteStates )
-
-    move :: StateID -> Symbol -> Maybe StateID
-    move stateID = listToMaybe . matchState ( states stateID )
-      where
-        states :: StateID -> [ ( Matcher, StateID ) ]
-        states = fromMaybe [] . flip Map.lookup transitionsTable
-
 -- | Ensures 'DFM' has a transition for each and every possible matcher for
 -- all states.
 closureDFM :: DFM -> DFM
@@ -399,3 +393,44 @@ clean dfm@DFM{..} = dfm{ transitionsTable = withoutLinks }
 -- | Tries to apply regex to an input string.
 match :: String -> Input -> Bool
 match regex = matchDFM ( fromString regex )
+
+-- | Checks whether 'DFM' accepts given string.
+matchDFM :: DFM -> String -> Bool
+matchDFM DFM{..} = finite . foldM move startState
+  where
+    finite :: Maybe StateID -> Bool
+    finite = maybe False ( `elem` finiteStates )
+
+    move :: StateID -> Symbol -> Maybe StateID
+    move stateID = listToMaybe . matchState ( states stateID )
+      where
+        states :: StateID -> [ ( Matcher, StateID ) ]
+        states = fromMaybe [] . flip Map.lookup transitionsTable
+
+-- | Returns the length of the longest matching substring of the input starting
+-- from the beginning of string. Returns 'Nothing' if no matches.
+-- Note: Actually, this is not deterministic - that version is prepared for
+-- multiple matches per unit of input.
+longestMatch :: String -> Input -> Maybe Int
+longestMatch regex = longestMatchDFM ( fromString regex )
+
+-- | See 'longestMatch'.
+longestMatchDFM :: DFM -> Input -> Maybe Int
+longestMatchDFM dfm str = evalState ( move 0 str ( startState dfm ) >> get ) Nothing
+  where
+    upd :: Int -> Maybe Int -> Maybe Int
+    upd n = Just . maybe n ( max n )
+
+    -- TODO: Move to top level, remove duplication with 'matchDFM'.
+    finite :: StateID -> Bool
+    finite x = x `elem` finiteStates dfm
+
+    move :: Int -> String -> StateID -> State ( Maybe Int ) ()
+    move curPos input stateID = do
+      when ( finite stateID ) ( modify ( upd curPos ) )
+      case input of
+        [] -> return ()
+        ( x : xs ) -> mapM_ ( move ( succ curPos ) xs ) ( matchState ( states stateID ) x  )
+      where
+        states :: StateID -> [ ( Matcher, StateID ) ]
+        states = fromMaybe [] . flip Map.lookup ( transitionsTable dfm )

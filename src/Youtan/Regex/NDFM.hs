@@ -3,6 +3,9 @@
 
 module Youtan.Regex.NDFM where
 
+import Control.Monad ( when )
+import Control.Monad.State ( evalState, get, modify )
+import qualified Control.Monad.State as State ( State )
 import Data.List ( intercalate )
 import qualified Data.Map.Strict as Map
 import Data.Maybe ( isNothing, catMaybes )
@@ -151,4 +154,35 @@ matchNDFM ndfm str = any ( isFiniteState ndfm ) $ move str ( startState ndfm )
 
         symbolBranches :: [ StateID ]
         symbolBranches = concatMap ( move ( tail input ) )
+          $ matchState ( branches state ) ( head input )
+
+-- | Returns the length of the longest matching substring of the input starting
+-- from the beginning of string. Returns 'Nothing' if no matches.
+longestMatch :: String -> Input -> Maybe Int
+longestMatch regex str = evalState ( move 0 str ( startState ndfm ) >> get ) Nothing
+  where
+    ndfm = fromString regex
+
+    upd :: Int -> Maybe Int -> Maybe Int
+    upd n Nothing    = Just n
+    upd n ( Just o ) = Just ( max o n )
+
+    move :: Int -> Input -> StateID -> State.State ( Maybe Int ) [ StateID ]
+    move currentLength input stateID = do
+      when ( isFiniteState ndfm stateID ) ( modify ( upd currentLength ) )
+      if null input
+         then
+           (:) stateID . concat <$> emptyBranches
+         else do
+           x <- symbolBranches
+           y <- emptyBranches
+           return ( concat ( x ++ y ) )
+      where
+        state = states ndfm Map.! stateID
+
+        symbolBranches, emptyBranches :: State.State ( Maybe Int ) [ [ StateID ] ]
+        emptyBranches =  mapM ( move currentLength input ) $
+          catMaybes [ emptyBranch1 state, emptyBranch2 state ]
+
+        symbolBranches = mapM ( move ( currentLength + 1 ) ( tail input ) )
           $ matchState ( branches state ) ( head input )

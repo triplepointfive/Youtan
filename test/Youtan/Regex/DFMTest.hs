@@ -26,3 +26,7 @@ spec = do
   context "match" $
     forM_ cases $ \ ( regex, input, result, name ) ->
       it name $ match regex input `shouldBe` result
+
+  context "longestMatch" $
+    forM_ longestCases $ \ ( regex, input, result, name ) ->
+      it name $ longestMatch regex input `shouldBe` result

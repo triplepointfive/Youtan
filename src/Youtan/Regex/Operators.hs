@@ -8,10 +8,14 @@ module Youtan.Regex.Operators
 , Counter(..)
 , Operator(..)
 , OperatorID
+, Parser( .. )
+, Token( .. )
+, Tokens
 ) where
 
 import Data.Tuple ( swap )
 
+-- TODO: Add other char classes to char group.
 -- | Represents a single character class.
 data CharacterClass
   -- | Any char except for newline.

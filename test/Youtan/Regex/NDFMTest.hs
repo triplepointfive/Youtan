@@ -9,6 +9,11 @@ import Youtan.Regex.NDFM
 import Youtan.Regex.FMTestCases
 
 spec :: SpecWith ()
-spec = context "match" $
-  forM_ cases $ \ ( regex, input, result, name ) ->
-    it name $ match regex input `shouldBe` result
+spec = do
+  context "match" $
+    forM_ cases $ \ ( regex, input, result, name ) ->
+      it name $ match regex input `shouldBe` result
+
+  context "longestMatch" $
+    forM_ longestCases $ \ ( regex, input, result, name ) ->
+      it name $ longestMatch regex input `shouldBe` result
