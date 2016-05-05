@@ -74,7 +74,7 @@ javaHelloWorldTokens =
   ]
 
 spec :: SpecWith ()
-spec = context "parseString" $ do
+spec = do
   context "tokenize" $ do
     it "Empty string" $
       tokenize algRules "" `shouldBe` []
