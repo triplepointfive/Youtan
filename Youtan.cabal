@@ -23,9 +23,12 @@ library
                      , Youtan.Regex.Operators
                      , Youtan.Regex.OperatorsExtra
                      , Youtan.Syntax.CFG
+                     , Youtan.Syntax.Dyn
+                     , Youtan.Syntax.LALR1
   build-depends:       base >= 4.7 && < 5
                      , containers
                      , mtl
+                     , template-haskell
   default-language:    Haskell2010
   other-modules:       Youtan.Utils
 

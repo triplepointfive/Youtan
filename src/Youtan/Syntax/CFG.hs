@@ -27,6 +27,9 @@ single = Check
 term :: Eq a => a -> ( a -> b ) -> Grammar a b
 term v = FMap ( tok v )
 
+toList :: Grammar a b -> Grammar a [ b ]
+toList f = ( uncurry mappend <$> ( pure <$> f ) :& toList f ) :| ( pure <$> f )
+
 parse :: [ a ] ->  Grammar a b -> Maybe b
 parse [ c ] ( Check cond ) = if cond c then Just c else Nothing
 parse x ( FMap g f )       = f <$> parse x g
