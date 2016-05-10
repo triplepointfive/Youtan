@@ -1,9 +1,9 @@
 module Main where
 
--- import Test.Hspec
+import Control.Applicative ( many, some )
 
 import Youtan.Lexical.Tokenizer
-import Youtan.Syntax.CFG
+import Youtan.Syntax.Parser
 
 data Token
   = Iden { _iden :: String }
@@ -38,51 +38,54 @@ data Exp
 data Assignment = Assignment String Exp
   deriving ( Show, Eq )
 
-str :: Grammar Token String
-str = FMap ( single iden ) _iden
+with :: String -> Either [ ( [ Assignment ], [ Token ] ) ] [ Assignment ]
+with input = runParser grammar ( dropSpaces $ tokenize rules input )
+
+main :: IO ()
+main = return ()
+
+str :: Parser Token String
+str = _iden <$> satisfy iden
   where
     iden ( Iden _ ) = True
     iden          _ = False
 
-name :: Grammar Token Exp
-name = FMap str RawName
+name :: Parser Token Exp
+name = RawName <$> str
 
-funArgs :: Grammar Token [ String ]
-funArgs = toList str
+funArgs :: Parser Token [ String ]
+funArgs = some str
 
-fun :: Grammar Token Exp
-fun = ( \ ( ( ( _, n), _), e) -> RawAbs n e ) <$> tok Lambda :& funArgs :& tok Dot :& expression
+fun :: Parser Token Exp
+fun = do
+  term Lambda
+  args <- funArgs
+  term Dot
+  ex <- expression
+  return $ RawAbs args ex
 
-app :: Grammar Token Exp
-app = uncurry RawApp <$> expression :& expression
+app :: Parser Token Exp
+app = do
+  ex <- expression
+  ex2 <- expression
+  return $ RawApp ex ex2
 
-expression :: Grammar Token Exp
-expression = brace expression 
-           :| name 
-           :| fun 
-           :| app
+expression :: Parser Token Exp
+expression = ( brace expression ) `option` name `option` fun `option` app
 
-assignment :: Grammar Token Assignment
-assignment = ( \ ( ( n, _), e ) -> Assignment n e ) <$> str :& tok Equal :& expression
+brace :: Parser Token a -> Parser Token a
+brace g = do
+  term OpenBrace
+  x <- g
+  term CloseBrace
+  return x
 
-grammar :: Grammar Token [ Assignment ]
-grammar = toList assignment
+assignment :: Parser Token Assignment
+assignment = do
+  a <- str
+  term Equal
+  e <- expression
+  return $ Assignment a e
 
-with :: String -> Maybe Exp
-with input = parse ( dropSpaces $ tokenize rules input ) expression
-
-brace :: Grammar Token a -> Grammar Token a
-brace g = ( \ ( ( _, x ), _ ) -> x ) <$> tok OpenBrace :& g :& tok CloseBrace
-
--- spec :: SpecWith ()
--- spec =
-  -- context "parse" $ do undefined
-    -- it "Plain number" $
-      -- with "12" `shouldBe` Just ( E 12 )
-    -- it "Expression refers itself" $
-      -- with "12+31" `shouldBe` Just ( A ( E 12 ) Plus ( E 31 ) )
-    -- it "Few nested expressions" $
-      -- with "1+2-3" `shouldBe` Just ( A ( A ( E 1 ) Plus ( E 2 ) ) Minus ( E 3 ) )
-
-main :: IO ()
-main = return ()
+grammar :: Parser Token [ Assignment ]
+grammar = many assignment

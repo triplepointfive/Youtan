@@ -23,8 +23,7 @@ library
                      , Youtan.Regex.Operators
                      , Youtan.Regex.OperatorsExtra
                      , Youtan.Syntax.CFG
-                     , Youtan.Syntax.Dyn
-                     , Youtan.Syntax.LALR1
+                     , Youtan.Syntax.Parser
   build-depends:       base >= 4.7 && < 5
                      , containers
                      , mtl
@@ -42,29 +41,24 @@ executable Youtan-exe
 
 test-suite Youtan-test
   type:                exitcode-stdio-1.0
-  hs-source-dirs:      test
+  hs-source-dirs:      examples
+                     , test
+                     , test/examples
   main-is:             Spec.hs
   build-depends:       base
+                     , containers
                      , hspec
                      , Youtan
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Wall
   default-language:    Haskell2010
-  other-modules:       Youtan.Lexical.TokenizerTest
+  other-modules:       Parser.JSON
+                     , Parser.JSONTest
+                     , Youtan.Lexical.TokenizerTest
                      , Youtan.Regex.NDFMTest
                      , Youtan.Regex.DFMTest
                      , Youtan.Regex.OperatorsTest
                      , Youtan.Regex.FMTestCases
                      , Youtan.Syntax.CFGTest
-
-test-suite LambdaCalculus
-  type:                exitcode-stdio-1.0
-  hs-source-dirs:      examples/LambdaCalculus
-  main-is:             Main.hs
-  build-depends:       base
-                     , hspec
-                     , Youtan
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Wall
-  default-language:    Haskell2010
 
 source-repository head
   type:     git
