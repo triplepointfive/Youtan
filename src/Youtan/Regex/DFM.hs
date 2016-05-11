@@ -12,6 +12,7 @@ module Youtan.Regex.DFM
 , longestMatchDFM
 , match
 , matchDFM
+, merge
 , minimize
 , squeeze
 ) where
@@ -434,3 +435,58 @@ longestMatchDFM dfm str = evalState ( move 0 str ( startState dfm ) >> get ) Not
       where
         states :: StateID -> [ ( Matcher, StateID ) ]
         states = fromMaybe [] . flip Map.lookup ( transitionsTable dfm )
+
+type T = ( StateID, Map.Map StateID StateID )
+
+-- | Combines two DFM into a single one. New DFM accepts all the string,
+-- which could be accepted with any of given DFMs.
+-- merge :: DFM -> DFM -> DFM
+merge dfm1 dfm2 = evalState ( transit ( startState dfm2 ) >> get ) ( freeID dfm1, initMap )
+  -- DFM
+  -- { finiteStates     = ![ StateID ]
+  -- , startState       = !StateID
+  -- , transitionsTable = !TransitionTable
+  -- , transitions      = !( Set.Set Matcher )
+  -- , freeID           = !StateID
+  -- }
+  where
+    initMap = Map.singleton ( startState dfm2 ) ( startState dfm1 )
+
+    nextID :: State T StateID
+    nextID = do
+      f <- fst <$> get
+      modify ( first nextFreeID )
+      return f
+
+    addMatch :: StateID -> StateID -> State T ()
+    addMatch dfm2NodeID dfm1NodeID = do
+      -- TODO: Check not present?
+      modify ( second ( Map.insert dfm2NodeID dfm1NodeID ) )
+
+    insertSelf :: StateID -> State T  ()
+    insertSelf _ = return ()
+
+    transit :: StateID -> State T ()
+    transit dfm2NodeID = do
+      mapping <- snd <$> get
+      if dfm2NodeID `Map.member` mapping
+      then
+        let dfm1NodeID       = mapping Map.! dfm2NodeID
+            dfm1NodeMatchers = ( transitionsTable dfm1 Map.! dfm1NodeID )
+            sameMatchers     :: [ ( StateID, StateID ) ]
+            sameMatchers     = catMaybes $ map ( \ ( m, s2 ) ->
+              ( \( m, s1) -> ( s2, s1 ) ) <$> ( find ( ( == ) m . fst ) dfm1NodeMatchers ) )
+              dfm2NodeMatchers
+        in mapM_ ( uncurry addMatch ) sameMatchers
+      else do
+        newID <- nextID
+        addMatch dfm2NodeID newID
+      mapM_ transit ( map snd dfm2NodeMatchers )
+      insertSelf dfm2NodeID
+      where
+        dfm2NodeMatchers = ( transitionsTable dfm2 Map.! dfm2NodeID )
+
+
+
+
+    -- type TransitionTable = Map.Map StateID [ ( Matcher, StateID ) ]

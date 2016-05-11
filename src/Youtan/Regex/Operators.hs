@@ -79,6 +79,8 @@ initID = 0
 nextFreeID :: OperatorID -> OperatorID
 nextFreeID = succ
 
+-- TODO: ID is not required for each and every operator, should be included
+-- for values only.
 -- | Action on matching input.
 data Operator
   -- | Blank operator, for empty strings etc. Matches nothing only.
