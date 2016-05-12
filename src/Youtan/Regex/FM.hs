@@ -33,3 +33,18 @@ matchState branches char = map snd $ filter ( matches . fst ) branches
     matches ( Class Whitespace ) = isSpace char
     matches ( Class ( CharGroup group ) ) = char `elem` group
     matches ( Class ( None chClass ) ) = not $ matches ( Class chClass )
+
+-- | ID of a node, must be uniq within 'DFM'.
+type StateID = Int
+
+-- | Just some ID to start off.
+initID :: StateID
+initID = 0
+
+-- | Returns next ID in a chain.
+nextFreeID :: StateID -> StateID
+nextFreeID = succ
+
+class FM a where
+  -- | Checks whether 'FM' accepts given string.
+  matchFM :: a -> String -> Bool

@@ -1,7 +1,14 @@
 -- | Implementation of NDFM.
 {-# LANGUAGE RecordWildCards #-}
 
-module Youtan.Regex.NDFM where
+module Youtan.Regex.NDFM 
+( FM( .. )
+, NDFM( .. )
+, State( .. )
+, fromString
+, longestMatch
+, match
+) where
 
 import Control.Monad ( when )
 import Control.Monad.State ( evalState, get, modify )
@@ -9,20 +16,10 @@ import qualified Control.Monad.State as State ( State )
 import Data.List ( intercalate )
 import qualified Data.Map.Strict as Map
 import Data.Maybe ( isNothing, catMaybes )
+import Data.String ( IsString( .. ) )
 
 import Youtan.Regex.Operators ( Counter(..), Operator(..), parseString )
 import Youtan.Regex.FM
-
--- | ID of a node, must be uniq within 'NDFM'.
-type StateID = Int
-
--- | Returns next ID in a chain.
-nextFreeID :: StateID -> StateID
-nextFreeID = succ
-
--- | Just some ID to start off.
-initID :: StateID
-initID = 0
 
 -- | A Node in 'NDFM' graph.
 data State = State
@@ -131,8 +128,8 @@ link :: StateID -> StateID -> States -> States
 link from to = Map.adjust ( setEmptyBranch to ) from
 
 -- | Builds 'NDFM' from string.
-fromString :: String -> NDFM
-fromString str = with ( parseString str ) initID
+instance IsString NDFM where
+  fromString str = with ( parseString str ) initID
 
 -- | Tries to apply regex to an input string.
 match :: String -> Input -> Bool

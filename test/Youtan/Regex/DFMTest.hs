@@ -13,15 +13,15 @@ spec :: SpecWith ()
 spec = do
   context "matchDFM . fromNDFM" $
     forM_ cases $ \ ( regex, input, result, name ) ->
-      it name $ matchDFM ( fromNDFM ( NDFM.fromString regex ) ) input `shouldBe` result
+      it name $ matchFM ( fromNDFM ( NDFM.fromString regex ) ) input `shouldBe` result
 
   context "matchDFM . squeeze . fromNDFM" $
     forM_ cases $ \ ( regex, input, result, name ) ->
-      it name $ matchDFM ( squeeze ( fromNDFM ( NDFM.fromString regex ) ) ) input `shouldBe` result
+      it name $ matchFM ( squeeze ( fromNDFM ( NDFM.fromString regex ) ) ) input `shouldBe` result
 
   context "matchDFM . minimize . fromNDFM" $
     forM_ cases $ \ ( regex, input, result, name ) ->
-      it name $ matchDFM ( minimize ( fromNDFM ( NDFM.fromString regex ) ) ) input `shouldBe` result
+      it name $ matchFM ( minimize ( fromNDFM ( NDFM.fromString regex ) ) ) input `shouldBe` result
 
   context "match" $
     forM_ cases $ \ ( regex, input, result, name ) ->
