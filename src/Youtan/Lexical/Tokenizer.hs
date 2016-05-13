@@ -8,7 +8,6 @@ module Youtan.Lexical.Tokenizer
 , Wrapper
 ) where
 
-import Control.Arrow ( first )
 import Control.Monad.State
 import Control.Monad.Except
 
@@ -18,11 +17,12 @@ import Youtan.Regex.DFM ( DFM, fromString, longestMatchDFM )
 type Rules a = [ ( String, String -> a ) ]
 
 -- | Same as 'Rules' with prepared 'DFM' per each rule.
-type ParsingRules a = [ ( DFM, String -> a) ]
+type ParsingRules a = ( DFM, [ String -> a ] )
 
 -- | Build 'DFM' per each rule.
 buildParingRules :: Rules a -> ParsingRules a
-buildParingRules = map ( first fromString )
+buildParingRules rules 
+  = ( mconcat $ map ( fromString . fst ) rules, map snd rules )
 
 -- | Applies a set of parsing rules to split the input string
 -- into a set of tokens.
@@ -39,23 +39,18 @@ type P w a = StateT String w a
 -- | Shortcut for monad error.
 type Wrapper w = MonadError String w
 
--- | Applies a regex to an input and returns the longest match.
-tryParse :: Wrapper w => DFM -> P w ( Maybe String )
-tryParse dfm = do
+-- | Chooses the longest match and applis related modifier to it.
+choice :: Wrapper w => ParsingRules a -> P w a
+choice ( dfm, matches ) = do
   inp <- get
   case longestMatchDFM dfm inp of
-    Nothing -> return Nothing
-    Just x -> if x > 0 then modify ( drop x ) >> return ( Just ( take x inp ) )
-                       else return Nothing
-
--- | Applies rules one by one until one matches or
-choice :: Wrapper w => ParsingRules a -> P w a
-choice [] = ( take 10 <$> get ) >>= throwError . (++) "All options failed "
-choice ( ( dfm, f ) : xs ) = do
-  x <- tryParse dfm
-  case x of
-    Just s -> return ( f s )
-    Nothing -> choice xs
+    Nothing -> failMessage
+    Just ( x, mID ) -> 
+      if x > 0 
+      then modify ( drop x ) >> return ( ( matches !! mID ) ( take x inp ) )
+      else failMessage
+  where
+    failMessage = ( take 10 <$> get ) >>= throwError . (++) "All options failed "
 
 -- | Checks if the whole input is consumed.
 done :: Wrapper w => P w Bool

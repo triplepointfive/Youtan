@@ -19,7 +19,7 @@ algRules :: Rules AlgExpression
 algRules = [ ( "\\+", const ( Action Plus ) )
            , ( "-", const ( Action Minus ) )
            , ( "-?\\d+", Num . read )
-           , ( "[^+-\\d]+", Rest )
+           , ( "[^-+0-9]+", Rest )
            ]
 
 data JavaToken
@@ -84,11 +84,17 @@ spec = do
       tokenize algRules "12abc+34" `shouldBe` [ Num 12, Rest "abc", Action Plus, Num 34 ]
     it "Fails with no parse" $
       evaluate ( tokenize [ ( "-", id ) ] "+" :: [ String ] ) `shouldThrow` anyException
+    it "Fails with rule that allow empty input" $
+      evaluate ( tokenize [ ( "\\d*", id ) ] "a12" :: [ String ] ) `shouldThrow` anyException
     it "Ignores wildchars" $
       tokenize [ ( "a*", id ), ( "-", id ) ] "-" `shouldBe` [ "-" ]
-    it "" $
+    it "Chooses first match in a list" $
+      tokenize [ ( "new", const 1 ), ( "\\w+", const 2 ) ] "new" `shouldBe` [ 1 :: Int ]
+    it "Chooses longest match" $
+      tokenize [ ( "new", const 1 ), ( "\\w+", const 2 ) ] "new_token" `shouldBe` [ 2 :: Int ]
+    it "Simple java program" $
       dropSpaces ( tokenize javaRules javaHelloWorld ) `shouldBe` javaHelloWorldTokens
-
+ 
   context "tokenizeT" $ do
     it "Empty string" $
       tokenizeT algRules "" `shouldBe` Right []

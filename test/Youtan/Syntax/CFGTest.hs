@@ -8,7 +8,7 @@ import Youtan.Syntax.CFG
 expRules :: Rules ExpToken
 expRules = [ ( "-", const ( Action Minus ) )
            , ( "\\+", const ( Action Plus ) )
-           , ( "-?\\d+", Num . read )
+           , ( "\\d+", Num . read )
            ]
 
 data Oper = Plus | Minus

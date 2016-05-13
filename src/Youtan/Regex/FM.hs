@@ -1,7 +1,7 @@
 -- | Base functionallity, shared within DFM and NDFM.
 module Youtan.Regex.FM where
 
-import Data.Char ( isDigit, isAscii, isSpace )
+import Data.Char ( isDigit, isAlphaNum, isSpace )
 
 import Youtan.Regex.Operators ( CharacterClass(..) )
 
@@ -28,7 +28,7 @@ matchState branches char = map snd $ filter ( matches . fst ) branches
   where
     matches ( Exact x )    = x == char
     matches ( Class Dot )  = True
-    matches ( Class Word ) = any ( \f -> f char ) [ isAscii, isDigit, (==) '_' ]
+    matches ( Class Word ) = any ( \f -> f char ) [ isAlphaNum, (==) '_' ]
     matches ( Class Digit )      = isDigit char
     matches ( Class Whitespace ) = isSpace char
     matches ( Class ( CharGroup group ) ) = char `elem` group

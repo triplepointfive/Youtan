@@ -1,5 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
-
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 -- | Implementation of DFM.
 module Youtan.Regex.DFM
 ( DFM
@@ -12,7 +13,6 @@ module Youtan.Regex.DFM
 , longestMatch
 , longestMatchDFM
 , match
-, merge
 , minimize
 , squeeze
 ) where
@@ -53,122 +53,108 @@ data DTable
 type TransitionTable = Map.Map StateID [ ( Matcher, StateID ) ]
 
 -- | Represents deterministic finite automaton.
-data DFM = DFM
-  -- TODO: Convert to Set.
+data DFM 
+  = DFM
   { finiteStates     :: !( Set.Set StateID )
   , startState       :: !StateID
   , transitionsTable :: !TransitionTable
   , transitions      :: !( Set.Set Matcher )
   , freeID           :: !StateID
   , finishIDs        :: !( Map.Map StateID DFMID )
-  , lastFinishID     :: !DFMID
   } deriving ( Eq, Show )
 
--- | Converts 'NDFM.NDFM' into 'DFM'.
-fromNDFM :: NDFM.NDFM -> DFM
-fromNDFM = buildDFM . buildDTable
+type StateMapping = ( StateID, Map.Map StateID StateID, Set.Set StateID )
 
--- | Builds 'DFM' from 'DTable'.
-buildDFM :: DTable -> DFM
-buildDFM DTable{..} = error $ show ( accessibleStates, processed , used )
-  -- DFM
-  -- { finiteStates     = Set.fromList finish
-  -- , startState       = st
-  -- , transitionsTable = finStates
-  -- , transitions      = trans
-  -- , freeID           = lastState
-  -- , finishIDs        = Map.fromList ( zip finish ( repeat newFinishID )  )
-  -- , lastFinishID     = newFinishID
-  -- }
-  where
-    newFinishID = 0
+instance Monoid DFM where
+  mempty  = DFM
+    { finiteStates     = Set.empty
+    , startState       = initID
+    , transitionsTable = Map.singleton initID []
+    , transitions      = Set.empty
+    , freeID           = nextFreeID initID
+    , finishIDs        = Map.empty
+    }
 
-    st = maybe initID ( \ x -> states Map.! x ) startState2
+  mconcat = foldl mappend mempty
 
-    finish :: [ StateID ]
-    finish = Map.elems $ Map.filterWithKey ( \ k _ -> Set.member completeState k ) states
+  mappend dfm1 dfm2 = 
+    DFM
+    { finiteStates     = finiteStates dfm1 `Set.union` dfm2UpdatedFinish
+    , startState       = startState dfm1
+    , transitionsTable = mergedTable
+    , transitions      = Set.union ( transitions dfm1 ) ( transitions dfm2 )
+    , freeID           = lastID
+    , finishIDs        = finishIDs dfm1 `Map.union` newFinishIDs
+    }
+    where
+      newFinishID = maximum ( 0 : map succ ( Map.elems ( finishIDs dfm1 ) ) )
 
-    states :: Map.Map DState StateID
-    states = Map.fromList $ zip accessibleStates ( iterate nextFreeID initID )
+      dfm2UpdatedFinish = Set.map ( statesMapping Map.! )
+                        $ Set.filter ( `Map.member` statesMapping ) ( finiteStates dfm2 )
 
-    accessibleStates = Set.toList $ Set.filter ( flip Set.member used ) processed
-    used = from `Set.union` to `Set.union` ( maybe Set.empty Set.singleton startState2 )
-    from = Set.fromList $ map fst $ Map.keys table
-    to   = Set.fromList $ Map.elems table
+      newFinishIDs = Map.fromList $ map (, newFinishID ) $ Set.toList dfm2UpdatedFinish
 
-    lastState = iterate nextFreeID initID !! Map.size states
+      initMap = Map.singleton ( startState dfm2 ) ( startState dfm1 )
 
-    trans :: Set.Set Matcher
-    trans = Set.fromList $ map snd $ Map.keys table
+      mergedTable = Map.foldlWithKey
+        unite
+        ( transitionsTable dfm1 )
+        accessibleDFM2States
 
-    finStates :: TransitionTable
-    finStates = Map.foldlWithKey
-      ( \ group ( from, m ) to -> Map.insertWith (++) ( states Map.! from ) [ ( m, states Map.! to ) ] group )
-      ( Map.fromList ( map (\x -> (x, [])) finish ) ) table
+      accessibleDFM2States = Map.filterWithKey
+        ( \ k _ -> Map.member k statesMapping )
+        ( transitionsTable dfm2 )
 
--- | Converts 'NDFM.NDFM' into 'DTable'.
-buildDTable :: NDFM.NDFM -> DTable
-buildDTable NDFM.NDFM{..} = step newDTable
-  where
-    newDTable = DTable Map.empty
-      Set.empty
-      ( Set.singleton $ eClosure ( Set.singleton startState ) )
-      finishState
-      Nothing
+      unite table dfm2StateID matchers = Map.insertWith
+        -- TODO: Use Map.merge or another way to check keys uniqueness.
+        ( ++ )
+        ( statesMapping Map.! dfm2StateID )
+        ( map ( second ( statesMapping Map.! ) ) matchers )
+        table
 
-    eClosure :: DState -> DState
-    eClosure = Set.foldl Set.union Set.empty . Set.map closure
-      where
-        closure :: StateID -> DState
-        closure stateID = Set.insert stateID
-          $ eClosure $ Set.fromList $ catMaybes
-          [ NDFM.emptyBranch1 ndfmState, NDFM.emptyBranch2 ndfmState ]
-          where ndfmState = states Map.! stateID
+      ( lastID, statesMapping, _ ) = evalState ( transit ( startState dfm2 ) >> get )
+        ( freeID dfm1, initMap, Set.empty )
 
-    move :: Matcher -> DState -> DState
-    move m = Set.map head
-           . Set.filter ( not . null )
-           . Set.map ( map snd
-                     . filter ( (==) m . fst )
-                     . NDFM.branches
-                     . ( Map.! ) states
-                     )
+      nextID :: State StateMapping StateID
+      nextID = do
+        ( next, _, _ ) <- get
+        modify ( \ ( f, s, t ) -> ( nextFreeID f, s, t ) )
+        return next
 
-    symbols :: DState -> Set.Set Matcher
-    symbols = Set.foldl Set.union Set.empty .
-      Set.map ( Set.fromList . map fst . NDFM.branches . ( Map.! ) states )
+      addMatch :: StateID -> StateID -> State StateMapping ()
+      addMatch dfm2NodeID dfm1NodeID =
+        modify ( \ ( f, s, t ) -> ( f, Map.insert dfm2NodeID dfm1NodeID s, t ) )
 
-    markState :: DTable -> ( DState, DTable )
-    markState dtable@DTable{..} = ( Set.elemAt 0 states2,
-      dtable{ states2 = Set.deleteAt 0 states2,
-              processed = Set.insert ( Set.elemAt 0 states2 ) processed } )
+      markState :: StateID -> State StateMapping ()
+      markState dfm2NodeID =
+        modify ( \ ( f, s, t ) -> ( f, s, Set.insert dfm2NodeID t ) )
 
-    step :: DTable -> DTable
-    step dtable2@DTable{..}
-      | Set.null states2 = dtable2
-      | otherwise = step ( foldl ( update dState ) dTable ( symbols dState ) )
-      where
-        ( dState, dTable ) = markState dtable2
+      marked :: StateID -> State StateMapping Bool
+      marked dfm2NodeID = do
+        ( _, _, marks ) <- get
+        return ( Set.member dfm2NodeID marks )
 
-    update :: DState -> DTable -> Matcher -> DTable
-    update dState d a = up{ table = Map.insert ( dState, a ) u ( table d ) }
-      where
-        u = eClosure ( move a dState )
-        up = if Set.member u ( processed d )
-             then d
-             else d{ states2 = Set.insert u ( states2 d ) }
-
--- | Shortcut for nullable function.
-type Nullable = Map.Map OperatorID Bool
-
--- | Shortcut for few functions.
-type Posable = Map.Map OperatorID ( Set.Set OperatorID )
-
--- | TODO: Name in wisely.
-type S = Set.Set OperatorID
-
--- | Table of transitions of original regex.
-type Table = Map.Map ( S, Matcher ) S
+      transit :: StateID -> State StateMapping ()
+      transit dfm2NodeID = do
+        processed <- marked dfm2NodeID
+        unless processed $ do
+          markState dfm2NodeID
+          ( _, mapping, _ ) <- get
+          if dfm2NodeID `Map.member` mapping
+          then
+            let dfm1NodeID       = mapping Map.! dfm2NodeID
+                dfm1NodeMatchers = ( transitionsTable dfm1 Map.! dfm1NodeID )
+                sameMatchers     :: [ ( StateID, StateID ) ]
+                sameMatchers     = mapMaybe ( \ ( m, s2 ) ->
+                  ( ( s2,) . snd ) <$> find ( ( == ) m . fst ) dfm1NodeMatchers )
+                  dfm2NodeMatchers
+            in mapM_ ( uncurry addMatch ) sameMatchers
+          else do
+            newID <- nextID
+            addMatch dfm2NodeID newID
+          mapM_ ( transit . snd ) dfm2NodeMatchers
+        where
+          dfm2NodeMatchers = transitionsTable dfm2 Map.! dfm2NodeID
 
 -- | Builds 'DFM' from an input regex.
 instance IsString DFM where
@@ -299,6 +285,119 @@ instance IsString DFM where
           step ( CharClass _ _ ) = return ()
           step ( Group oper ) = step oper
 
+instance FM DFM where
+  -- | Checks whether 'DFM' accepts given string.
+  matchFM DFM{..} = finite . foldM move startState
+    where
+      finite :: Maybe StateID -> Bool
+      finite = maybe False ( `elem` finiteStates )
+
+      move :: StateID -> Symbol -> Maybe StateID
+      move stateID = listToMaybe . matchState ( states stateID )
+        where
+          states :: StateID -> [ ( Matcher, StateID ) ]
+          states = fromMaybe [] . flip Map.lookup transitionsTable
+
+-- | Converts 'NDFM.NDFM' into 'DFM'.
+fromNDFM :: NDFM.NDFM -> DFM
+fromNDFM = buildDFM . buildDTable
+
+-- | Builds 'DFM' from 'DTable'.
+buildDFM :: DTable -> DFM
+buildDFM DTable{..} =
+  DFM
+  { finiteStates     = Set.fromList finish
+  , startState       = st
+  , transitionsTable = finStates
+  , transitions      = trans
+  , freeID           = lastState
+  , finishIDs        = Map.fromList ( zip finish ( repeat 0 )  )
+  }
+  where
+    st = maybe initID ( states Map.! ) startState2
+
+    finish :: [ StateID ]
+    finish = Map.elems $ Map.filterWithKey ( \ k _ -> Set.member completeState k ) states
+
+    states :: Map.Map DState StateID
+    states = Map.fromList $ zip ( Set.toList processed ) ( iterate nextFreeID initID )
+
+    lastState = iterate nextFreeID initID !! Map.size states
+
+    trans :: Set.Set Matcher
+    trans = Set.fromList $ map snd $ Map.keys table
+
+    finStates :: TransitionTable
+    finStates = Map.foldlWithKey
+      ( \ group ( from, m ) to -> Map.insertWith (++) ( states Map.! from ) [ ( m, states Map.! to ) ] group )
+      ( Map.fromList ( map (\x -> (x, [])) finish ) ) table
+
+-- | Converts 'NDFM.NDFM' into 'DTable'.
+buildDTable :: NDFM.NDFM -> DTable
+buildDTable NDFM.NDFM{..} = step newDTable
+  where
+    newDTable = DTable
+      { table         = Map.empty
+      , processed     = Set.empty
+      , states2       = Set.singleton $ eClosure ( Set.singleton startState )
+      , completeState = finishState
+      , startState2   = Nothing -- Just ( Set.singleton startState )
+      }
+
+    eClosure :: DState -> DState
+    eClosure = Set.foldl Set.union Set.empty . Set.map closure
+      where
+        closure :: StateID -> DState
+        closure stateID = Set.insert stateID
+          $ eClosure $ Set.fromList $ catMaybes
+          [ NDFM.emptyBranch1 ndfmState, NDFM.emptyBranch2 ndfmState ]
+          where ndfmState = states Map.! stateID
+
+    move :: Matcher -> DState -> DState
+    move m = Set.map head
+           . Set.filter ( not . null )
+           . Set.map ( map snd
+                     . filter ( (==) m . fst )
+                     . NDFM.branches
+                     . ( Map.! ) states
+                     )
+
+    symbols :: DState -> Set.Set Matcher
+    symbols = Set.foldl Set.union Set.empty .
+      Set.map ( Set.fromList . map fst . NDFM.branches . ( Map.! ) states )
+
+    markState :: DTable -> ( DState, DTable )
+    markState dtable@DTable{..} = ( Set.elemAt 0 states2,
+      dtable{ states2 = Set.deleteAt 0 states2,
+              processed = Set.insert ( Set.elemAt 0 states2 ) processed } )
+
+    step :: DTable -> DTable
+    step dtable2@DTable{..}
+      | Set.null states2 = dtable2
+      | otherwise = step ( foldl ( update dState ) dTable ( symbols dState ) )
+      where
+        ( dState, dTable ) = markState dtable2
+
+    update :: DState -> DTable -> Matcher -> DTable
+    update dState d a = up{ table = Map.insert ( dState, a ) u ( table d ) }
+      where
+        u = eClosure ( move a dState )
+        up = if Set.member u ( processed d )
+             then d
+             else d{ states2 = Set.insert u ( states2 d ) }
+
+-- | Shortcut for nullable function.
+type Nullable = Map.Map OperatorID Bool
+
+-- | Shortcut for few functions.
+type Posable = Map.Map OperatorID ( Set.Set OperatorID )
+
+-- | TODO: Name in wisely.
+type S = Set.Set OperatorID
+
+-- | Table of transitions of original regex.
+type Table = Map.Map ( S, Matcher ) S
+
 -- | Ensures 'DFM' has a transition for each and every possible matcher for
 -- all states.
 closureDFM :: DFM -> DFM
@@ -404,122 +503,34 @@ clean dfm@DFM{..} = dfm{ transitionsTable = withoutLinks }
 match :: String -> Input -> Bool
 match regex = matchFM ( fromString regex :: DFM )
 
-instance FM DFM where
-  -- | Checks whether 'DFM' accepts given string.
-  matchFM DFM{..} = finite . foldM move startState
-    where
-      finite :: Maybe StateID -> Bool
-      finite = maybe False ( `elem` finiteStates )
-
-      move :: StateID -> Symbol -> Maybe StateID
-      move stateID = listToMaybe . matchState ( states stateID )
-        where
-          states :: StateID -> [ ( Matcher, StateID ) ]
-          states = fromMaybe [] . flip Map.lookup transitionsTable
-
 -- | Returns the length of the longest matching substring of the input starting
 -- from the beginning of string. Returns 'Nothing' if no matches.
 -- Note: Actually, this is not deterministic - that version is prepared for
 -- multiple matches per unit of input.
-longestMatch :: String -> Input -> Maybe Int
+longestMatch :: String -> Input -> Maybe ( Int, DFMID )
 longestMatch regex = longestMatchDFM ( fromString regex )
 
 -- | See 'longestMatch'.
-longestMatchDFM :: DFM -> Input -> Maybe Int
-longestMatchDFM dfm str = evalState ( move 0 str ( startState dfm ) >> get ) Nothing
+longestMatchDFM :: DFM -> Input -> Maybe ( Int, DFMID )
+longestMatchDFM DFM{..} str = evalState ( move 0 str startState >> get ) Nothing
   where
-    upd :: Int -> Maybe Int -> Maybe Int
-    upd n = Just . maybe n ( max n )
+    upd :: ( Int, DFMID ) -> Maybe ( Int, DFMID ) -> Maybe ( Int, DFMID )
+    upd new Nothing = Just new
+    upd new@( n, dfmID ) prev@( Just ( prevLenght, prevDfmID ) )
+      | n > prevLenght                       = Just new
+      | n == prevLenght && dfmID < prevDfmID = Just new
+      | otherwise                            = prev
 
     -- TODO: Move to top level, remove duplication with 'matchFM'.
     finite :: StateID -> Bool
-    finite x = x `elem` finiteStates dfm
+    finite x = x `elem` finiteStates 
 
-    move :: Int -> String -> StateID -> State ( Maybe Int ) ()
+    move :: Int -> String -> StateID -> State ( Maybe ( Int, DFMID ) ) ()
     move curPos input stateID = do
-      when ( finite stateID ) ( modify ( upd curPos ) )
+      when ( finite stateID ) ( modify ( upd ( curPos, finishIDs Map.! stateID ) ) )
       case input of
         [] -> return ()
         ( x : xs ) -> mapM_ ( move ( succ curPos ) xs ) ( matchState ( states stateID ) x  )
       where
         states :: StateID -> [ ( Matcher, StateID ) ]
-        states = fromMaybe [] . flip Map.lookup ( transitionsTable dfm )
-
-type StateMapping = ( StateID, Map.Map StateID StateID, Set.Set StateID )
-
--- | Combines two DFM into a single one. New DFM accepts all the string,
--- which could be accepted with any of given DFMs.
-merge :: DFM -> DFM -> DFM
-merge dfm1 dfm2 =
-  DFM
-  { finiteStates     = finiteStates dfm1 `Set.union` dfm2UpdatedFinish
-  , startState       = startState dfm1
-  , transitionsTable = mergedTable
-  , transitions      = Set.union ( transitions dfm1 ) ( transitions dfm2 )
-  , freeID           = lastID
-  , finishIDs        = finishIDs dfm1 `Map.union` newFinishIDs
-  , lastFinishID     = newFinishID
-  }
-  where
-    newFinishID = succ $ max ( lastFinishID dfm2 ) ( lastFinishID dfm1 )
-
-    dfm2UpdatedFinish = Set.map ( statesMapping Map.! ) ( finiteStates dfm2 )
-
-    newFinishIDs = Map.fromList $ map ( \s -> ( s, newFinishID ) ) $ Set.toList dfm2UpdatedFinish
-
-    initMap = Map.singleton ( startState dfm2 ) ( startState dfm1 )
-
-    -- type TransitionTable = Map.Map StateID [ ( Matcher, StateID ) ]
-    mergedTable = Map.foldlWithKey ( \ table dfm2StateID matchers
-                                    -> Map.insertWith
-                                        -- TODO: Check if union must be smarter.
-                                        ( ++ )
-                                        ( statesMapping Map.! dfm2StateID )
-                                        ( map ( second ( \s -> statesMapping Map.! s ) ) matchers )
-                                        table )
-      ( transitionsTable dfm1 )
-      ( transitionsTable dfm2 )
-
-    ( lastID, statesMapping, _ ) = evalState ( transit ( startState dfm2 ) >> get )
-      ( freeID dfm1, initMap, Set.empty )
-
-    nextID :: State StateMapping StateID
-    nextID = do
-      ( next, _, _ ) <- get
-      modify ( \ ( f, s, t ) -> ( nextFreeID f, s, t ) )
-      return next
-
-    addMatch :: StateID -> StateID -> State StateMapping ()
-    addMatch dfm2NodeID dfm1NodeID =
-      modify ( \ ( f, s, t ) -> ( f, Map.insert dfm2NodeID dfm1NodeID s, t ) )
-
-    markState :: StateID -> State StateMapping ()
-    markState dfm2NodeID =
-      modify ( \ ( f, s, t ) -> ( f, s, Set.insert dfm2NodeID t ) )
-
-    marked :: StateID -> State StateMapping Bool
-    marked dfm2NodeID = do
-      ( _, _, marks ) <- get
-      return ( Set.member dfm2NodeID marks )
-
-    transit :: StateID -> State StateMapping ()
-    transit dfm2NodeID = do
-      processed <- marked dfm2NodeID
-      unless processed $ do
-        markState dfm2NodeID
-        ( _, mapping, _ ) <- get
-        if dfm2NodeID `Map.member` mapping
-        then
-          let dfm1NodeID       = mapping Map.! dfm2NodeID
-              dfm1NodeMatchers = ( transitionsTable dfm1 Map.! dfm1NodeID )
-              sameMatchers     :: [ ( StateID, StateID ) ]
-              sameMatchers     = mapMaybe ( \ ( m, s2 ) ->
-                ( \( _, s1) -> ( s2, s1 ) ) <$> find ( ( == ) m . fst ) dfm1NodeMatchers )
-                dfm2NodeMatchers
-          in mapM_ ( uncurry addMatch ) sameMatchers
-        else do
-          newID <- nextID
-          addMatch dfm2NodeID newID
-        mapM_ ( transit . snd ) dfm2NodeMatchers
-      where
-        dfm2NodeMatchers = transitionsTable dfm2 Map.! dfm2NodeID
+        states = fromMaybe [] . flip Map.lookup transitionsTable
