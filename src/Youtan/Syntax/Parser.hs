@@ -1,14 +1,16 @@
 module Youtan.Syntax.Parser
 ( Parser( .. )
-, pad
 , (<|>)
-, runParser
-, term
-, satisfy
-, opt
-, oneOf
 , chainl
 , joins
+, many
+, oneOf
+, opt
+, pad
+, runParser
+, satisfy
+, some
+, term
 ) where
 
 import Control.Applicative
