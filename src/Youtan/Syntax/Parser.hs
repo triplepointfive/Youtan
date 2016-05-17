@@ -9,6 +9,7 @@ module Youtan.Syntax.Parser
 , pad
 , runParser
 , satisfy
+, skip
 , some
 , term
 ) where
@@ -100,3 +101,6 @@ joins d p = ( do
   xs <- many ( d >> p )
   return ( x : xs )
             ) <|> return []
+
+skip :: Parser a b -> Parser a c -> Parser a b
+skip rule ignore = rule >>= \ v -> ignore >> return v

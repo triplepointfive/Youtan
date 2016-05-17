@@ -31,7 +31,7 @@ rules =
   , ( ",",    const Comma )
   , ( "\\s+", const Space )
   , ( "(new|class|extends|super|this|return)", Keyword )
-  , ( "[^ \n\t(){};=]+", Identifier )
+  , ( "[^ \n\t(){};=,.]+", Identifier )
   ]
 
 lexical :: String -> [ Token ]
@@ -49,23 +49,33 @@ newtype PropertyName = PropertyName String
 newtype VariableName = VariableName String
   deriving ( Show, Eq )
 
-type Properties = Map.Map PropertyName ClassName
+type Properties = [ ( ClassName, PropertyName ) ]
 
-type MethodArguments = Map.Map VariableName ClassName
+type MethodArguments = [ ( ClassName, VariableName ) ]
 
-type Methods = Map.Map MethodName MethodBody
+type Methods = Map.Map MethodName Method
 
 data Class
   = Class
-  { className   :: !ClassName
-  , parentName  :: !ClassName
-  , properties  :: !Properties
-  , constructor :: !Constructor
-  , methods     :: !Methods
+  { classHead :: !ClassHead
+  , classBody :: !ClassBody
   } deriving ( Show, Eq )
 
-data MethodBody
-  = MethodBody
+data ClassHead
+  = ClassHead
+  { className  :: !ClassName
+  , parentName :: !ClassName
+  } deriving ( Show, Eq )
+
+data ClassBody
+  = ClassBody
+  { properties  :: !Properties
+  , constructor :: !Constructor
+  , methods     :: ![ Method ]
+  } deriving ( Show, Eq )
+
+data Method
+  = Method
   { returnType :: !ClassName
   , methodName :: !MethodName
   , arguments  :: !MethodArguments
@@ -76,9 +86,15 @@ data MethodBody
 data Constructor
   = Constructor
   { buildType       :: !ClassName
-  , args            :: !Properties
-  , superProperties :: ![ PropertyName ]
-  , selfProperties  :: ![ ( PropertyName, PropertyName ) ]
+  , args            :: !MethodArguments
+  , constructorBody :: !ConstructorBody
+  }
+  deriving ( Show, Eq )
+
+data ConstructorBody
+  = ConstructorBody
+  { superProperties :: ![ PropertyName ]
+  , selfProperties  :: ![ ( PropertyName, VariableName ) ]
   }
   deriving ( Show, Eq )
 
@@ -112,39 +128,49 @@ propertyName' = PropertyName <$> identifier
 variableName' :: Parser Token VariableName
 variableName' = VariableName <$> identifier
 
-property' :: Parser Token ( PropertyName, ClassName )
-property' = do
-  propType <- className'
-  term Space
-  propName <- propertyName'
-  return ( propName, propType )
+property' :: Parser Token ( ClassName, PropertyName )
+property' = (,) <$> className' <*> ( term Space >> propertyName' )
 
 properties' :: Parser Token Properties
-properties' = Map.fromList <$> many ( property' >>= \ s -> semicolon >> return s )
+properties' = many ( property' `skip` semicolon )
 
 class' :: Parser Token Class
-class' = do
-  classKeyword
-  selfName <- className'
-  extendsKeyword
-  parent <- className'
-  Class selfName parent <$> return Map.empty <*> constructor' <*> return Map.empty
+class' = Class
+  <$> classHead'
+  <*> braced classBody'
+
+classHead' :: Parser Token ClassHead
+classHead' = ClassHead
+  <$> ( classKeyword   >> className' )
+  <*> ( extendsKeyword >> className' )
+
+classBody' :: Parser Token ClassBody
+classBody' = ClassBody
+  <$> properties'
+  <*> constructor'
+  <*> many method
 
 constructor' :: Parser Token Constructor
-constructor' = do
-  name <- className'
-  pros <- Map.fromList <$> parenthesesed ( joins comma property' )
-  ( superP, selfP ) <- braced $ do
-    (,) <$> super <*> self
-  return ( Constructor name pros superP selfP )
-  where
-    super = superKeyword >> parenthesesed ( joins comma propertyName' )
-    self  = many $ do
-      p1 <- thisKeyword >> dot >> propertyName'
-      equal
-      p2 <- propertyName'
-      semicolon
-      return ( p1, p2 )
+constructor' = Constructor
+  <$> className'
+  <*> parenthesesed methodArguments'
+  <*> braced constructorBody'
+
+methodArguments' :: Parser Token MethodArguments
+methodArguments' = joins comma methodArg'
+
+methodArg' :: Parser Token ( ClassName, VariableName )
+methodArg' = (,) <$> className' <*> ( space >> variableName' )
+
+constructorBody' :: Parser Token ConstructorBody
+constructorBody' = ConstructorBody
+  <$> ( superKeyword >> parenthesesed ( joins comma propertyName' ) `skip` semicolon )
+  <*> many selfAssignment
+
+selfAssignment :: Parser Token ( PropertyName, VariableName )
+selfAssignment = (,)
+  <$> ( thisKeyword >> dot >> propertyName' )
+  <*> ( equal >> variableName' `skip` semicolon )
 
 newKeyword, classKeyword, extendsKeyword :: Parser Token ()
 superKeyword, thisKeyword, returnKeyword :: Parser Token ()
@@ -167,14 +193,46 @@ openBrace        = lexem $ term OpenBrace
 closeBrace       = lexem $ term CloseBrace
 openParentheses  = lexem $ term OpenParentheses
 closeParentheses = lexem $ term CloseParentheses
-space            = lexem $ term Space
 equal            = lexem $ term Equal
 semicolon        = lexem $ term Semicolon
 dot              = lexem $ term Dot
 comma            = lexem $ term Comma
+space            = term Space
 
 parenthesesed :: Parser Token a -> Parser Token a
 parenthesesed p = pad openParentheses p closeParentheses
 
 braced :: Parser Token a -> Parser Token a
 braced p = pad openBrace p closeBrace
+
+expression :: Parser Token Expression
+expression = lexem ( ( object <|> coercion' <|> variable' ) >>= accessor )
+
+coercion' :: Parser Token Expression
+coercion' = Coercion
+  <$> parenthesesed className'
+  <*> expression
+
+variable' :: Parser Token Expression
+variable' = ( Variable <$> variableName' )
+  <|> ( const ( Variable ( VariableName "this" ) ) <$> thisKeyword )
+
+accessor :: Expression -> Parser Token Expression
+accessor expr =
+  ( ( AttributeAccess <$> return expr <*> ( dot >> propertyName' ) ) >>= accessor )
+  <|> return expr
+
+object :: Parser Token Expression
+object = Object
+  <$> ( newKeyword >> className' )
+  <*> parenthesesed ( joins comma expression )
+
+method :: Parser Token Method
+method = Method
+  <$> lexem className'
+  <*> methodName'
+  <*> parenthesesed methodArguments'
+  <*> braced ( returnKeyword >> ( expression `skip` semicolon ) )
+
+grammar :: Parser Token [ Class ]
+grammar = some ( lexem class' )
