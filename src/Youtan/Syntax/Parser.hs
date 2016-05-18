@@ -1,6 +1,7 @@
 module Youtan.Syntax.Parser
 ( Parser( .. )
 , (<|>)
+, (<<)
 , chainl
 , joins
 , many
@@ -89,11 +90,7 @@ opt :: Eq a => a -> Parser a ()
 opt t = term t <|> return ()
 
 pad :: Parser a b -> Parser a c -> Parser a d -> Parser a c
-pad l m r = do
-  void l
-  v <- m
-  void r
-  return v
+pad l m r = void l >> m << void r
 
 joins :: Parser a c -> Parser a b -> Parser a [ b ]
 joins d p = ( do
@@ -104,3 +101,6 @@ joins d p = ( do
 
 skip :: Parser a b -> Parser a c -> Parser a b
 skip rule ignore = rule >>= \ v -> ignore >> return v
+
+(<<) :: Parser a b -> Parser a c -> Parser a b
+(<<) = skip
