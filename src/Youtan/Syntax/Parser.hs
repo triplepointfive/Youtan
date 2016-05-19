@@ -1,6 +1,7 @@
 module Youtan.Syntax.Parser
 ( Parser( .. )
 , (<|>)
+, (!)
 , (<<)
 , chainl
 , joins
@@ -104,3 +105,8 @@ skip rule ignore = rule >>= \ v -> ignore >> return v
 
 (<<) :: Parser a b -> Parser a c -> Parser a b
 (<<) = skip
+
+infixl 3 !
+
+(!) :: Parser a b -> Parser a b -> Parser a b
+(!) = option

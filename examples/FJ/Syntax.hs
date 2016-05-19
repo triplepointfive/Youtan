@@ -1,15 +1,14 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Syntax
 ( Class ( .. )
 , ClassHead ( .. )
 , ClassTerm ( .. )
 , ConstructorBody ( .. )
 , Expression ( .. )
+, Parser
 
-, ClassName ( .. )
-, MethodName ( .. )
-, PropertyName ( .. )
-, VariableName ( .. )
-
+, classDef
+, classTerm
 , expression
 , syntax
 , with
@@ -17,27 +16,12 @@ module Syntax
 
 import Youtan.Syntax.Parser
 
+import Atom
 import Lexical ( Token( .. ) )
-
--- import qualified Data.Map as Map
-
-newtype ClassName = ClassName String
-  deriving ( Show, Eq )
-
-newtype MethodName = MethodName String
-  deriving ( Show, Eq )
-
-newtype PropertyName = PropertyName String
-  deriving ( Show, Eq, Ord )
-
-newtype VariableName = VariableName String
-  deriving ( Show, Eq )
-
--- type Properties = [ ( ClassName, PropertyName ) ]
 
 type MethodArguments = [ ( ClassName, VariableName ) ]
 
--- type Methods = Map.Map MethodName Method
+type Syntax = Parser Token
 
 syntax :: [ Token ] -> Either [([Class], [Token])] [Class]
 syntax = runParser grammar
@@ -85,18 +69,17 @@ data Expression
   | Coercion !ClassName !Expression
   deriving ( Show, Eq )
 
-
 isIdentifier :: Token -> Bool
 isIdentifier ( Identifier _ ) = True
 isIdentifier _ = False
 
 -- Meta rules.
 
-lexem :: Parser Token a -> Parser Token a
+lexem :: Syntax a -> Syntax a
 lexem p = pad ( opt Space ) p ( opt Space )
 
-openBrace, closeBrace, semicolon, dot, space :: Parser Token ()
-openParentheses, closeParentheses, equal, comma :: Parser Token ()
+openBrace, closeBrace, semicolon, dot, space :: Syntax ()
+openParentheses, closeParentheses, equal, comma :: Syntax ()
 openBrace        = lexem $ term OpenBrace
 closeBrace       = lexem $ term CloseBrace
 openParentheses  = lexem $ term OpenParentheses
@@ -107,19 +90,19 @@ dot              = lexem $ term Dot
 comma            = lexem $ term Comma
 space            = term Space
 
-parenthesesed :: Parser Token a -> Parser Token a
+parenthesesed :: Syntax a -> Syntax a
 parenthesesed p = pad openParentheses p closeParentheses
 
-braced :: Parser Token a -> Parser Token a
+braced :: Syntax a -> Syntax a
 braced p = pad openBrace p closeBrace
 
 -- Keywords.
 
-keyword :: String -> Parser Token ()
+keyword :: String -> Syntax ()
 keyword = lexem . term . Keyword
 
-newKeyword, classKeyword, extendsKeyword :: Parser Token ()
-superKeyword, thisKeyword, returnKeyword :: Parser Token ()
+newKeyword, classKeyword, extendsKeyword :: Syntax ()
+superKeyword, thisKeyword, returnKeyword :: Syntax ()
 newKeyword     = keyword "new"
 classKeyword   = keyword "class"
 extendsKeyword = keyword "extends"
@@ -129,100 +112,103 @@ returnKeyword  = keyword "return"
 
 -- Strings.
 
-identifier :: Parser Token String
+identifier :: Syntax String
 identifier = _identifier <$> satisfy isIdentifier
 
-className' :: Parser Token ClassName
+className' :: Syntax ClassName
 className' = ClassName <$> identifier
 
-methodName' :: Parser Token MethodName
+methodName' :: Syntax MethodName
 methodName' = MethodName <$> identifier
 
-propertyName' :: Parser Token PropertyName
+propertyName' :: Syntax PropertyName
 propertyName' = PropertyName <$> identifier
 
-variableName' :: Parser Token VariableName
+variableName' :: Syntax VariableName
 variableName' = VariableName <$> identifier
 
 -- Top level.
 
-grammar :: Parser Token [ Class ]
-grammar = some ( lexem class' )
+grammar :: Syntax [ Class ]
+grammar = some ( lexem classDef )
 
 -- Class level.
 
-class' :: Parser Token Class
-class' = Class
+classDef :: Syntax Class
+classDef = Class
   <$> classHead
   <*> braced ( many classTerm )
 
-classHead :: Parser Token ClassHead
+classHead :: Syntax ClassHead
 classHead = ClassHead
   <$> ( classKeyword   >> className' )
   <*> ( extendsKeyword >> className' )
 
-classTerm :: Parser Token ClassTerm
+classTerm :: Syntax ClassTerm
 classTerm = property <|> constructor <|> method
 
-property :: Parser Token ClassTerm
+property :: Syntax ClassTerm
 property = Property <$> className' <*> ( term Space >> propertyName' << semicolon )
 
 -- Constructor level.
 
-constructor :: Parser Token ClassTerm
+constructor :: Syntax ClassTerm
 constructor = Constructor
   <$> className'
-  <*> parenthesesed methodArguments'
+  <*> parenthesesed methodArguments
   <*> braced constructorBody'
 
-constructorBody' :: Parser Token ConstructorBody
+constructorBody' :: Syntax ConstructorBody
 constructorBody' = ConstructorBody
   <$> ( superKeyword >> parenthesesed ( joins comma propertyName' ) << semicolon )
   <*> many selfAssignment
 
-selfAssignment :: Parser Token ( PropertyName, VariableName )
+selfAssignment :: Syntax ( PropertyName, VariableName )
 selfAssignment = (,)
   <$> ( thisKeyword >> dot >> propertyName' )
   <*> ( equal >> variableName' << semicolon )
 
 -- Method level.
 
-method :: Parser Token ClassTerm
+method :: Syntax ClassTerm
 method = Method
   <$> lexem className'
   <*> methodName'
-  <*> parenthesesed methodArguments'
+  <*> parenthesesed methodArguments
   <*> braced ( returnKeyword >> expression << semicolon )
 
-methodArguments' :: Parser Token MethodArguments
-methodArguments' = joins comma methodArg'
+methodArguments :: Syntax MethodArguments
+methodArguments = joins comma methodArg
 
-methodArg' :: Parser Token ( ClassName, VariableName )
-methodArg' = (,) <$> className' <*> ( space >> variableName' )
+methodArg :: Syntax ( ClassName, VariableName )
+methodArg = (,) <$> className' <*> ( space >> variableName' )
 
 -- Expression level.
 
-expression :: Parser Token Expression
+expression :: Syntax Expression
 expression = lexem ( ( object <|> coercion <|> variable' ) >>= accessor )
 
-coercion :: Parser Token Expression
+coercion :: Syntax Expression
 coercion = Coercion
   <$> parenthesesed className'
   <*> expression
 
-variable' :: Parser Token Expression
-variable' = ( Variable <$> variableName' )
-  <|> ( const ( Variable ( VariableName "this" ) ) <$> thisKeyword )
+variable' :: Syntax Expression
+variable' = Variable <$> ( variableName' ! return "this" << thisKeyword )
 
-accessor :: Expression -> Parser Token Expression
-accessor expr =
-  ( ( AttributeAccess <$> return expr <*> ( dot >> propertyName' ) ) >>= accessor )
-  <|> return expr
+accessor :: Expression -> Syntax Expression
+accessor expr = ( dot >> identifier >>= invocation expr >>= accessor )
+              ! return expr
 
-object :: Parser Token Expression
+invocation :: Expression -> String -> Syntax Expression
+invocation expr name
+  = MethodInvocation expr ( MethodName name ) <$> parenthesesed expressionList
+  ! return ( AttributeAccess expr ( PropertyName name ) )
+
+object :: Syntax Expression
 object = Object
   <$> ( newKeyword >> className' )
-  <*> parenthesesed ( joins comma expression )
+  <*> parenthesesed expressionList
 
--- | MethodInvocation !Expression !MethodName ![ Expression ]
--- | Object ClassName ![ Expression ]
+expressionList :: Syntax [ Expression ]
+expressionList = joins comma expression
