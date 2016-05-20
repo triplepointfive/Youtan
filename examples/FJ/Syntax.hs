@@ -1,11 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Syntax
-( Class ( .. )
+( ClassDef ( .. )
 , ClassHead ( .. )
 , ClassTerm ( .. )
 , ConstructorBody ( .. )
 , Expression ( .. )
+
+, Classes
 , Parser
+, Token
 
 , classDef
 , classTerm
@@ -23,13 +26,15 @@ type MethodArguments = [ ( ClassName, VariableName ) ]
 
 type Syntax = Parser Token
 
-syntax :: [ Token ] -> Either [([Class], [Token])] [Class]
+type Classes = [ ClassDef ]
+
+syntax :: [ Token ] -> Either [ ( Classes, [ Token ] ) ] Classes
 syntax = runParser grammar
 
 with :: Parser a b -> [ a ] -> Either [ ( b, [ a ] ) ] b
 with = runParser
 
-data Class = Class !ClassHead ![ ClassTerm ]
+data ClassDef = ClassDef !ClassHead ![ ClassTerm ]
   deriving ( Show, Eq )
 
 data ClassHead
@@ -46,7 +51,7 @@ data ClassTerm
     , constructorBody :: !ConstructorBody
     }
   | Property !ClassName !PropertyName
-  | Method
+  | MethodTerm
     { returnType :: !ClassName
     , methodName :: !MethodName
     , arguments  :: !MethodArguments
@@ -96,6 +101,9 @@ parenthesesed p = pad openParentheses p closeParentheses
 braced :: Syntax a -> Syntax a
 braced p = pad openBrace p closeBrace
 
+listOf :: Syntax a -> Syntax [ a ]
+listOf = parenthesesed . joins comma
+
 -- Keywords.
 
 keyword :: String -> Syntax ()
@@ -121,21 +129,21 @@ className' = ClassName <$> identifier
 methodName' :: Syntax MethodName
 methodName' = MethodName <$> identifier
 
-propertyName' :: Syntax PropertyName
-propertyName' = PropertyName <$> identifier
+propertyName :: Syntax PropertyName
+propertyName = PropertyName <$> identifier
 
 variableName' :: Syntax VariableName
 variableName' = VariableName <$> identifier
 
 -- Top level.
 
-grammar :: Syntax [ Class ]
+grammar :: Syntax [ ClassDef ]
 grammar = some ( lexem classDef )
 
 -- Class level.
 
-classDef :: Syntax Class
-classDef = Class
+classDef :: Syntax ClassDef
+classDef = ClassDef
   <$> classHead
   <*> braced ( many classTerm )
 
@@ -148,37 +156,34 @@ classTerm :: Syntax ClassTerm
 classTerm = property <|> constructor <|> method
 
 property :: Syntax ClassTerm
-property = Property <$> className' <*> ( term Space >> propertyName' << semicolon )
+property = Property <$> className' <*> ( term Space >> propertyName << semicolon )
 
 -- Constructor level.
 
 constructor :: Syntax ClassTerm
 constructor = Constructor
   <$> className'
-  <*> parenthesesed methodArguments
+  <*> listOf methodArg
   <*> braced constructorBody'
 
 constructorBody' :: Syntax ConstructorBody
 constructorBody' = ConstructorBody
-  <$> ( superKeyword >> parenthesesed ( joins comma propertyName' ) << semicolon )
+  <$> ( superKeyword >> listOf propertyName << semicolon )
   <*> many selfAssignment
 
 selfAssignment :: Syntax ( PropertyName, VariableName )
 selfAssignment = (,)
-  <$> ( thisKeyword >> dot >> propertyName' )
+  <$> ( thisKeyword >> dot >> propertyName )
   <*> ( equal >> variableName' << semicolon )
 
 -- Method level.
 
 method :: Syntax ClassTerm
-method = Method
+method = MethodTerm
   <$> lexem className'
   <*> methodName'
-  <*> parenthesesed methodArguments
+  <*> listOf methodArg
   <*> braced ( returnKeyword >> expression << semicolon )
-
-methodArguments :: Syntax MethodArguments
-methodArguments = joins comma methodArg
 
 methodArg :: Syntax ( ClassName, VariableName )
 methodArg = (,) <$> className' <*> ( space >> variableName' )
@@ -202,13 +207,10 @@ accessor expr = ( dot >> identifier >>= invocation expr >>= accessor )
 
 invocation :: Expression -> String -> Syntax Expression
 invocation expr name
-  = MethodInvocation expr ( MethodName name ) <$> parenthesesed expressionList
+  = MethodInvocation expr ( MethodName name ) <$> listOf expression
   ! return ( AttributeAccess expr ( PropertyName name ) )
 
 object :: Syntax Expression
 object = Object
   <$> ( newKeyword >> className' )
-  <*> parenthesesed expressionList
-
-expressionList :: Syntax [ Expression ]
-expressionList = joins comma expression
+  <*> listOf expression
