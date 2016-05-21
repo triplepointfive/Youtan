@@ -1,3 +1,4 @@
+-- | Simple parser combinator.
 module Youtan.Syntax.Parser
 ( Parser( .. )
 , (<|>)
@@ -19,8 +20,12 @@ module Youtan.Syntax.Parser
 import Control.Applicative
 import Control.Monad
 
+-- | Parser is a function that transforms a set of tokens
+-- into a new structure and a list of unused tokens.
 newtype Parser a b = Parser { _parse :: [ a ] -> [( b, [ a ] )] }
 
+-- | Applies a parser to a list of tokens. Fails if parser
+-- couldn't consume entire input.
 runParser :: Parser a b -> [ a ] -> Either [ ( b, [ a ] ) ] b
 runParser m s =
   case _parse m s of
@@ -43,12 +48,16 @@ instance Alternative ( Parser a ) where
   empty = mzero
   (<|>) = option
 
+-- | Applies a parser to unmatch input after first parser.
 combine :: Parser a b -> Parser a b -> Parser a b
 combine p q = Parser (\s -> _parse p s ++ _parse q s)
 
+-- | Parser that fails to parse.
 failure :: Parser a b
 failure = Parser ( const [] )
 
+-- | Returns the result of first parser if it matches,
+-- otherwise the result of second parser.
 option :: Parser a b -> Parser a b -> Parser a b
 option  p q = Parser $ \s ->
   case _parse p s of
@@ -59,15 +68,18 @@ instance Monad ( Parser a ) where
   return = unit
   (>>=)  = bind
 
+-- | Parser the consumes any token.
 item :: Parser a a
 item = Parser $ \s ->
   case s of
    []     -> []
    (c:cs) -> [(c,cs)]
 
+-- | Combines parsers.
 bind :: Parser a b -> ( b -> Parser a c ) -> Parser a c
 bind p f = Parser $ \s -> concatMap (\(a, s') -> _parse (f a) s') ( _parse p s )
 
+-- | Parser that builds specified value with no token consumed.
 unit :: b -> Parser a b
 unit a = Parser (\s -> [(a,s)])
 
