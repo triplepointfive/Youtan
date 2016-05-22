@@ -83,6 +83,7 @@ bind p f = Parser $ \s -> concatMap (\(a, s') -> _parse (f a) s') ( _parse p s )
 unit :: b -> Parser a b
 unit a = Parser (\s -> [(a,s)])
 
+-- | Builds a parser from the given predicate.
 satisfy :: ( a -> Bool ) -> Parser a a
 satisfy p = bind item $ \c -> if p c then unit c else Parser ( const [] )
 
@@ -96,15 +97,19 @@ chainl1 :: Parser a b -> Parser a (b -> b -> b) -> Parser a b
 chainl1 p op = op >>= \f -> p >>= rest f
   where rest f a = ( p >>= rest f . f a  ) <|> return a
 
+-- | Builds a parser that matches given term.
 term :: Eq a => a -> Parser a ()
 term t = void $ satisfy ( == t )
 
+-- | Either matching a parser or consumes nothing.
 opt :: Eq a => a -> Parser a ()
 opt t = term t <|> return ()
 
+-- | Return the result of second parser, ignoring result of surrounding ones.
 pad :: Parser a b -> Parser a c -> Parser a d -> Parser a c
 pad l m r = void l >> m << void r
 
+-- | Returns a list of matches, separated with first parser. List could be empty.
 joins :: Parser a c -> Parser a b -> Parser a [ b ]
 joins d p = ( do
   x <- p
@@ -112,13 +117,16 @@ joins d p = ( do
   return ( x : xs )
             ) <|> return []
 
+-- | Ignores result of second parser and return the result of first one.
 skip :: Parser a b -> Parser a c -> Parser a b
 skip rule ignore = rule >>= \ v -> ignore >> return v
 
+-- | Alias for 'skip'.
 (<<) :: Parser a b -> Parser a c -> Parser a b
 (<<) = skip
 
 infixl 3 !
 
+-- | Either combinator.
 (!) :: Parser a b -> Parser a b -> Parser a b
 (!) = option
