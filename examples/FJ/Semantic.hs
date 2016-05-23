@@ -1,8 +1,9 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Semantic where
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-import Data.Sequence as S
+import qualified Data.Sequence as Seq
 import Control.Monad.State
 
 import Atom
@@ -18,11 +19,11 @@ data Severity
 
 data Error
   = Error
-    { file     :: !FilePath
-    , column   :: !Int
-    , line     :: !Int
-    , severity :: !Severity
-    , message  :: !ErrorMessage
+    { file         :: !FilePath
+    , column       :: !Int
+    , line         :: !Int
+    , severity     :: !Severity
+    , errorMessage :: !ErrorMessage
     }
   deriving ( Show, Eq )
 
@@ -45,7 +46,7 @@ data Class
 data Method = Method
   deriving Show
 
-type Semantic a = State ( Seq Error ) a
+type Semantic a = State ( Seq.Seq Error ) a
 
 semantic :: Either [ ( Classes, [ Token ] ) ] Classes -> Either Errors NameTable
 semantic = either parseError nameTable
@@ -58,23 +59,45 @@ nameTable = undefined -- declareClasses
 
 type ClassesDeclaration = Map.Map ClassName ( [ PropertyName ], [ MethodName ] )
 
-declareClasses :: Classes -> Semantic ClassesDeclaration
-declareClasses = foldM addClass Map.empty
-  where
-    addClass :: ClassesDeclaration -> ClassDef -> Semantic ClassesDeclaration
-    addClass classes ( ClassDef ( ClassHead name parentName ) terms ) = do
-      unless ( parentName `Map.member` classes ) $ 
-        addError ( MissingParentClass parentName )
+newClassesDeclaration :: ClassesDeclaration
+newClassesDeclaration = Map.singleton "Object" ( [], [] )
 
-      if name `Map.member` classes
-      then do
-        addError ( ClassIsDefined name )
-        return classes
-      else
-        return ( Map.insert name ( [], [] ) classes )
+declareClasses :: Classes -> Semantic ClassesDeclaration
+declareClasses = foldM addClass newClassesDeclaration
+
+addClass :: ClassesDeclaration -> ClassDef -> Semantic ClassesDeclaration
+addClass classes ( ClassDef ( ClassHead name parentName ) terms ) = do
+  mapM_ addError classDefErrors  
+
+  properties <- validateProperties
+
+  -- validateConstructor terms
+  
+  return ( Map.insert name ( [], [] ) classes )
+  where
+    classDefErrors = map snd $ filter fst $
+      [ ( parentName `Map.notMember` classes
+        , MissingParentClass parentName )
+      , ( name `Map.member` classes
+        , ClassIsDefined name )
+      ]
+
+    validateProperties :: Semantic [ PropertyName ]
+    validateProperties = forM properties $ \ ( className, propName ) -> do
+      when ( className == name ) ( addError ( IncompleteClass className ) )
+      when ( className `Map.notMember` classes && className /= name ) $
+        addError ( IncompleteClass className )
+      return propName
+      where
+        properties = [ ( className, propName ) | Property className propName <- terms ]
+
+
+    -- validateConstructor :: ClassesDeclaration -> Semantic ClassesDeclaration
+    -- validateConstructor terms
 
 addError :: SemanticError -> Semantic ()
-addError message = modify ( |> Error "" 0 0 Fatal ( SemanticError message ) )
+addError message 
+  = modify ( Seq.|> Error "" 0 0 Fatal ( SemanticError message ) )
 
 anyOf :: ( [ b ], a ) -> Either [ b ] a
 anyOf ( [], a ) = Right a

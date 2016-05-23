@@ -1,13 +1,29 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
+import qualified Data.Sequence as Seq
+
+import Control.Monad.State
 import Test.Hspec
 
+import Atom
+import I18n
 import Lexical ( lexical )
+import Semantic
 import Syntax
 
 parse :: Parser Token a -> String -> a
 parse rule input = let Right res = with rule ( lexical input ) in res
+
+emptyClass :: ClassName -> ClassName -> ClassDef
+emptyClass name parName
+  = ClassDef ( ClassHead name parName ) [ Constructor name [] ( ConstructorBody [] [] ) ]
+
+errorMessages :: Semantic a -> Seq.Seq ErrorMessage
+errorMessages f = evalState ( f >> fmap errorMessage <$> get ) Seq.empty
+
+declareErrors :: Classes -> Seq.Seq ErrorMessage
+declareErrors = errorMessages . declareClasses
 
 main :: IO ()
 main = hspec $ parallel $ describe "FJ" $ do
@@ -62,3 +78,18 @@ main = hspec $ parallel $ describe "FJ" $ do
       it "Minimal class" $ do
         parse classDef "class A extends Object { A() { super(); } }" `shouldBe`
           ClassDef ( ClassHead "A" "Object" ) [ Constructor "A" [] ( ConstructorBody [] [] ) ]
+
+  describe "Semantic" $ do
+    context "Class declaration errors" $ do
+      it "Class name is taken" $ do
+        declareErrors [ emptyClass "A" "Object", emptyClass "A" "Object" ] `shouldBe`
+          Seq.singleton ( SemanticError ( ClassIsDefined "A" ) )
+      it "Class inherits unknown class" $ do
+        declareErrors [ emptyClass "A" "B" ] `shouldBe`
+          Seq.singleton ( SemanticError ( MissingParentClass "B" ) )
+      it "Class inherits itself" $ do
+        declareErrors [ emptyClass "A" "A" ] `shouldBe`
+          Seq.singleton ( SemanticError ( MissingParentClass "A" ) )
+      it "Does not complain for poorly defined parent class" $ do
+        declareErrors [ emptyClass "A" "A", emptyClass "B" "A" ] `shouldBe`
+          Seq.singleton ( SemanticError ( MissingParentClass "A" ) )
