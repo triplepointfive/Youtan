@@ -17,13 +17,18 @@ parse rule input = let Right res = with rule ( lexical input ) in res
 
 emptyClass :: ClassName -> ClassName -> ClassDef
 emptyClass name parName
-  = ClassDef ( ClassHead name parName ) [ Constructor name [] ( ConstructorBody [] [] ) ]
+  = ClassDef ( ClassHead name parName ) [ ConstructorDef name [] ( ConstructorBody [] [] ) ]
 
 errorMessages :: Semantic a -> Seq.Seq ErrorMessage
 errorMessages f = evalState ( f >> fmap errorMessage <$> get ) Seq.empty
 
 declareErrors :: Classes -> Seq.Seq ErrorMessage
 declareErrors = errorMessages . declareClasses
+
+classWithProps :: [ ( ClassName, PropertyName ) ] -> ClassDef
+classWithProps props = 
+  ClassDef ( ClassHead "A" "Object" ) 
+  (  ConstructorDef "A" [] ( ConstructorBody [] [] ) : map ( uncurry Property ) props )
 
 main :: IO ()
 main = hspec $ parallel $ describe "FJ" $ do
@@ -69,7 +74,7 @@ main = hspec $ parallel $ describe "FJ" $ do
           Property "Object" "fst"
       it "Minimal constructor" $
         parse classTerm "A() { super(); }" `shouldBe`
-          Constructor "A" [] ( ConstructorBody [] [] )
+          ConstructorDef "A" [] ( ConstructorBody [] [] )
       it "Minimal method" $
         parse classTerm "A prop() { return this; }" `shouldBe`
           MethodTerm "A" "prop" [] ( Variable "this" )
@@ -77,7 +82,7 @@ main = hspec $ parallel $ describe "FJ" $ do
     context "Class" $ do
       it "Minimal class" $ do
         parse classDef "class A extends Object { A() { super(); } }" `shouldBe`
-          ClassDef ( ClassHead "A" "Object" ) [ Constructor "A" [] ( ConstructorBody [] [] ) ]
+          ClassDef ( ClassHead "A" "Object" ) [ ConstructorDef "A" [] ( ConstructorBody [] [] ) ]
 
   describe "Semantic" $ do
     context "Class declaration errors" $ do
@@ -93,3 +98,13 @@ main = hspec $ parallel $ describe "FJ" $ do
       it "Does not complain for poorly defined parent class" $ do
         declareErrors [ emptyClass "A" "A", emptyClass "B" "A" ] `shouldBe`
           Seq.singleton ( SemanticError ( MissingParentClass "A" ) )
+    context "Properties list errors" $ do
+      it "Propery refers class itself" $ do
+        declareErrors [ classWithProps [ ( "A", "a" ) ] ] `shouldBe`
+          Seq.singleton ( SemanticError ( IncompleteClass "A" ) )
+      it "Propery uses unknown class" $ do
+        declareErrors [ classWithProps [ ( "B", "a" ) ] ] `shouldBe`
+          Seq.singleton ( SemanticError ( UndefinedClass "B" ) )
+      it "Propery is declared twice" $ do
+        declareErrors [ classWithProps [ ( "Object", "a" ), ( "Object", "a" ) ] ] `shouldBe`
+          Seq.singleton ( SemanticError ( DuplicatedPropertyName "a" ) )

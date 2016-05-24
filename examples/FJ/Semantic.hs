@@ -38,8 +38,16 @@ type NameTable = Map.Map ClassName Class
 
 data Class
   = Class
-    { classProperties :: !( Set.Set PropertyName )
+    { classProperties :: !Properties
     , classMethods    :: !( Map.Map MethodName Method )
+    }
+  deriving Show
+
+data Constructor
+  = Constructor
+    { inputProps      :: ![ PropertyName ]
+    , constructorArgs :: !Properties
+    , superArgs       :: ![ PropertyName ]
     }
   deriving Show
 
@@ -57,24 +65,27 @@ parseError = undefined
 nameTable :: Classes -> Either Errors NameTable
 nameTable = undefined -- declareClasses
 
-type ClassesDeclaration = Map.Map ClassName ( [ PropertyName ], [ MethodName ] )
+type ClassesDeclaration = Map.Map ClassName ( Properties, [ MethodName ] )
 
 newClassesDeclaration :: ClassesDeclaration
-newClassesDeclaration = Map.singleton "Object" ( [], [] )
+newClassesDeclaration = Map.singleton "Object" ( Map.empty, [] )
 
 declareClasses :: Classes -> Semantic ClassesDeclaration
 declareClasses = foldM addClass newClassesDeclaration
 
 addClass :: ClassesDeclaration -> ClassDef -> Semantic ClassesDeclaration
 addClass classes ( ClassDef ( ClassHead name parentName ) terms ) = do
-  mapM_ addError classDefErrors  
+  mapM_ addError classDefErrors
 
-  properties <- validateProperties
+  properties <- foldM validateProperties Map.empty properties
 
-  -- validateConstructor terms
-  
-  return ( Map.insert name ( [], [] ) classes )
+  constructor <- validateConstructor constructors
+
+  return ( Map.insert name ( properties, [] ) classes )
   where
+    properties   = [ ( className, propName ) | Property className propName     <- terms ]
+    constructors = [ ( retVal, args, body )  | ConstructorDef retVal args body <- terms ]
+
     classDefErrors = map snd $ filter fst $
       [ ( parentName `Map.notMember` classes
         , MissingParentClass parentName )
@@ -82,21 +93,40 @@ addClass classes ( ClassDef ( ClassHead name parentName ) terms ) = do
         , ClassIsDefined name )
       ]
 
-    validateProperties :: Semantic [ PropertyName ]
-    validateProperties = forM properties $ \ ( className, propName ) -> do
+    -- TODO: Doesn't colliase with parent properties.
+    validateProperties :: Properties
+                       -> ( ClassName, PropertyName )
+                       -> Semantic Properties
+    validateProperties props ( className, propName ) = do
       when ( className == name ) ( addError ( IncompleteClass className ) )
       when ( className `Map.notMember` classes && className /= name ) $
-        addError ( IncompleteClass className )
-      return propName
-      where
-        properties = [ ( className, propName ) | Property className propName <- terms ]
+        addError ( UndefinedClass className )
+      when ( propName `Map.member` props ) ( addError ( DuplicatedPropertyName propName ) )
+      return ( Map.insert propName className props )
+
+    validateConstructor :: [ ( ClassName, [ ( ClassName, PropertyName ) ], ConstructorBody ) ] 
+                        -> Semantic ( Maybe Constructor )
+    validateConstructor [] = do
+      addError ( MissingConstructor name )
+      return Nothing
+    validateConstructor [ ( className, args, ConstructorBody super self ) ] = do
+      when ( className /= name ) ( addError ( ConstructorInvalidName className ) )
+
+      props <- foldM validateProperties Map.empty args
+
+      -- TODO: Check parent properties list.
 
 
-    -- validateConstructor :: ClassesDeclaration -> Semantic ClassesDeclaration
-    -- validateConstructor terms
+
+      -- let
+
+      return ( Just $ Constructor [] props [])
+    validateConstructor ( c : xs ) = do
+      addError ( MultipleConstructorDeclarations name )
+      validateConstructor [ c ]
 
 addError :: SemanticError -> Semantic ()
-addError message 
+addError message
   = modify ( Seq.|> Error "" 0 0 Fatal ( SemanticError message ) )
 
 anyOf :: ( [ b ], a ) -> Either [ b ] a

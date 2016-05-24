@@ -1,10 +1,14 @@
-module Atom 
+module Atom
 ( ClassName ( .. )
 , MethodName ( .. )
 , PropertyName ( .. )
 , VariableName ( .. )
+, Properties
+, MethodArguments
+, fromString
 ) where
 
+import qualified Data.Map as Map
 import Data.String ( IsString( .. ) )
 
 newtype ClassName = ClassName String
@@ -42,3 +46,7 @@ instance IsString VariableName where
 
 instance Show VariableName where
   show ( VariableName name ) = name
+
+type Properties = Map.Map PropertyName ClassName
+
+type MethodArguments = Map.Map VariableName ClassName

@@ -19,7 +19,7 @@ module Syntax
 
 import Youtan.Syntax.Parser
 
-import Atom
+import Atom hiding ( MethodArguments )
 import Lexical ( Token( .. ) )
 
 type MethodArguments = [ ( ClassName, VariableName ) ]
@@ -39,15 +39,15 @@ data ClassDef = ClassDef !ClassHead ![ ClassTerm ]
 
 data ClassHead
   = ClassHead
-    { className  :: !ClassName
-    , parentName :: !ClassName
+    { newClassName :: !ClassName
+    , parentName   :: !ClassName
     }
   deriving ( Show, Eq )
 
 data ClassTerm
-  = Constructor
+  = ConstructorDef
     { buildType       :: !ClassName
-    , args            :: !MethodArguments
+    , args            :: ![ ( ClassName, PropertyName ) ]
     , constructorBody :: !ConstructorBody
     }
   | Property !ClassName !PropertyName
@@ -62,7 +62,7 @@ data ClassTerm
 data ConstructorBody
   = ConstructorBody
     { superProperties :: ![ PropertyName ]
-    , selfProperties  :: ![ ( PropertyName, VariableName ) ]
+    , selfProperties  :: ![ ( PropertyName, PropertyName ) ]
     }
   deriving ( Show, Eq )
 
@@ -123,17 +123,17 @@ returnKeyword  = keyword "return"
 identifier :: Syntax String
 identifier = _identifier <$> satisfy isIdentifier
 
-className' :: Syntax ClassName
-className' = ClassName <$> identifier
+className :: Syntax ClassName
+className = fromString <$> identifier
 
 methodName' :: Syntax MethodName
-methodName' = MethodName <$> identifier
+methodName' = fromString <$> identifier
 
 propertyName :: Syntax PropertyName
-propertyName = PropertyName <$> identifier
+propertyName = fromString <$> identifier
 
-variableName' :: Syntax VariableName
-variableName' = VariableName <$> identifier
+variableName :: Syntax VariableName
+variableName = fromString <$> identifier
 
 -- Top level.
 
@@ -149,21 +149,21 @@ classDef = ClassDef
 
 classHead :: Syntax ClassHead
 classHead = ClassHead
-  <$> ( classKeyword   >> className' )
-  <*> ( extendsKeyword >> className' )
+  <$> ( classKeyword   >> className )
+  <*> ( extendsKeyword >> className )
 
 classTerm :: Syntax ClassTerm
 classTerm = property <|> constructor <|> method
 
 property :: Syntax ClassTerm
-property = Property <$> className' <*> ( term Space >> propertyName << semicolon )
+property = Property <$> className <*> ( term Space >> propertyName << semicolon )
 
 -- Constructor level.
 
 constructor :: Syntax ClassTerm
-constructor = Constructor
-  <$> className'
-  <*> listOf methodArg
+constructor = ConstructorDef
+  <$> className
+  <*> listOf constructorArg
   <*> braced constructorBody'
 
 constructorBody' :: Syntax ConstructorBody
@@ -171,22 +171,25 @@ constructorBody' = ConstructorBody
   <$> ( superKeyword >> listOf propertyName << semicolon )
   <*> many selfAssignment
 
-selfAssignment :: Syntax ( PropertyName, VariableName )
+selfAssignment :: Syntax ( PropertyName, PropertyName )
 selfAssignment = (,)
   <$> ( thisKeyword >> dot >> propertyName )
-  <*> ( equal >> variableName' << semicolon )
+  <*> ( equal >> propertyName << semicolon )
 
 -- Method level.
 
 method :: Syntax ClassTerm
 method = MethodTerm
-  <$> lexem className'
+  <$> lexem className
   <*> methodName'
   <*> listOf methodArg
   <*> braced ( returnKeyword >> expression << semicolon )
 
 methodArg :: Syntax ( ClassName, VariableName )
-methodArg = (,) <$> className' <*> ( space >> variableName' )
+methodArg = (,) <$> className <*> ( space >> variableName )
+
+constructorArg :: Syntax ( ClassName, PropertyName )
+constructorArg = (,) <$> className <*> ( space >> propertyName )
 
 -- Expression level.
 
@@ -195,11 +198,11 @@ expression = lexem ( ( object <|> coercion <|> variable' ) >>= accessor )
 
 coercion :: Syntax Expression
 coercion = Coercion
-  <$> parenthesesed className'
+  <$> parenthesesed className
   <*> expression
 
 variable' :: Syntax Expression
-variable' = Variable <$> ( variableName' ! return "this" << thisKeyword )
+variable' = Variable <$> ( variableName ! return "this" << thisKeyword )
 
 accessor :: Expression -> Syntax Expression
 accessor expr = ( dot >> identifier >>= invocation expr >>= accessor )
@@ -212,5 +215,5 @@ invocation expr name
 
 object :: Syntax Expression
 object = Object
-  <$> ( newKeyword >> className' )
+  <$> ( newKeyword >> className )
   <*> listOf expression
