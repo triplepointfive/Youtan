@@ -21,7 +21,7 @@ instance Show ClassName where
   show ( ClassName name ) = name
 
 newtype MethodName = MethodName String
-  deriving ( Eq )
+  deriving ( Eq, Ord )
 
 instance IsString MethodName where
   fromString = MethodName
@@ -39,7 +39,7 @@ instance Show PropertyName where
   show ( PropertyName name ) = name
 
 newtype VariableName = VariableName String
-  deriving ( Eq )
+  deriving ( Eq, Ord )
 
 instance IsString VariableName where
   fromString = VariableName

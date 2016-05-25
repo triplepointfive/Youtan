@@ -26,9 +26,12 @@ declareErrors :: Classes -> Seq.Seq ErrorMessage
 declareErrors = errorMessages . declareClasses
 
 classWithProps :: [ ( ClassName, PropertyName ) ] -> ClassDef
-classWithProps props = 
-  ClassDef ( ClassHead "A" "Object" ) 
+classWithProps props =
+  ClassDef ( ClassHead "A" "Object" )
   (  ConstructorDef "A" [] ( ConstructorBody [] [] ) : map ( uncurry Property ) props )
+
+classWithTerms :: [ ClassTerm ] -> ClassDef
+classWithTerms = ClassDef ( ClassHead "A" "Object" )
 
 main :: IO ()
 main = hspec $ parallel $ describe "FJ" $ do
@@ -108,3 +111,14 @@ main = hspec $ parallel $ describe "FJ" $ do
       it "Propery is declared twice" $ do
         declareErrors [ classWithProps [ ( "Object", "a" ), ( "Object", "a" ) ] ] `shouldBe`
           Seq.singleton ( SemanticError ( DuplicatedPropertyName "a" ) )
+    context "Constructor errors" $ do
+      it "Classs without constructor" $ do
+        declareErrors [ classWithTerms [] ] `shouldBe`
+          Seq.singleton ( SemanticError ( MissingConstructor "A" ) )
+      it "Classs with few constructors" $ do
+        declareErrors [ classWithTerms [ ConstructorDef "A" [] ( ConstructorBody [] [] )
+                                       , ConstructorDef "A" [] ( ConstructorBody [] [] ) ] ] `shouldBe`
+          Seq.singleton ( SemanticError ( MultipleConstructorDeclarations "A" ) )
+      it "Constructor returns another type" $ do
+        declareErrors [ classWithTerms [ ConstructorDef "Object" [] ( ConstructorBody [] [] ) ] ] `shouldBe`
+          Seq.singleton ( SemanticError ( ConstructorInvalidName "Object" ) )

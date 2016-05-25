@@ -17,6 +17,10 @@ data SemanticError
   | PropertyIsNotSet !PropertyName
   | UnknownProperty !PropertyName
   | ParentPropertySet !PropertyName
+
+  | UndefinedVariable !VariableName
+  | MethodIsDefined !MethodName
+  | VariableIsDefined !VariableName
   deriving Eq
 
 instance Show SemanticError where
@@ -45,3 +49,42 @@ instance Show SemanticError where
     concat [ "unknown property ", show name, " is set" ]
   show ( ParentPropertySet name ) =
     concat [ "property ", show name, " belongs to parent class and must be set via super call" ]
+  show ( UndefinedVariable name ) =
+    "undefined variable " ++ show name
+  show ( MethodIsDefined name ) =
+    concat [ "method ", show name, " has already been defined" ]
+  show ( VariableIsDefined name ) =
+    concat [ "variable ", show name, " has already been defined" ]
+
+data TypeCheckError
+  = VariableHasNoType !VariableName
+  deriving Eq
+
+instance Show TypeCheckError where
+  show ( VariableHasNoType name ) =
+    "could not resolve variable " ++ show name
+
+data Severity
+  = Fatal
+  | Note
+  deriving ( Show, Eq )
+
+data Error
+  = Error
+    { file         :: !FilePath
+    , column       :: !Int
+    , line         :: !Int
+    , severity     :: !Severity
+    , errorMessage :: !ErrorMessage
+    }
+  deriving ( Show, Eq )
+
+type Errors = [ Error ]
+
+data ErrorMessage
+  = SemanticError !SemanticError
+  | TypeCheckError !TypeCheckError
+  deriving Eq
+
+instance Show ErrorMessage where
+  show ( SemanticError message ) = show message

@@ -20,6 +20,7 @@ module Syntax
 import Youtan.Syntax.Parser
 
 import Atom hiding ( MethodArguments )
+import AST ( Expression( .. ) )
 import Lexical ( Token( .. ) )
 
 type MethodArguments = [ ( ClassName, VariableName ) ]
@@ -64,14 +65,6 @@ data ConstructorBody
     { superProperties :: ![ PropertyName ]
     , selfProperties  :: ![ ( PropertyName, PropertyName ) ]
     }
-  deriving ( Show, Eq )
-
-data Expression
-  = Variable !VariableName
-  | AttributeAccess !Expression !PropertyName
-  | MethodInvocation !Expression !MethodName ![ Expression ]
-  | Object !ClassName ![ Expression ]
-  | Coercion !ClassName !Expression
   deriving ( Show, Eq )
 
 isIdentifier :: Token -> Bool
