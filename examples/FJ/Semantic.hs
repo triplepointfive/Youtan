@@ -20,7 +20,7 @@ parseError :: [ ( Classes, [ Token ] ) ] -> Either Errors NameTable
 parseError = undefined
 
 nameTable :: Classes -> Either Errors NameTable
-nameTable classes = evalState ( declareClasses classes >>= typeCheck ) Seq.empty
+nameTable classes = evalState ( declareClasses classes >>= anyOf ) Seq.empty
 
 newNameTable :: NameTable
 newNameTable = Map.singleton "Object" ( Class Map.empty "Object" Map.empty ( Just $ Constructor [] Map.empty [] ) )
@@ -100,12 +100,12 @@ addClass classes ( ClassDef ( ClassHead name parentClassName ) terms ) = do
 
       return ( Map.insert varName varType list )
 
-typeCheck :: NameTable -> Semantic ( Either Errors NameTable )
-typeCheck table = do
+anyOf :: NameTable -> Semantic ( Either Errors NameTable )
+anyOf table = do
   declarationErrors <- get
   if Seq.null declarationErrors
   then
-    undefined
+    return ( Right table )
   else
     return ( Left ( toList declarationErrors ) )
 

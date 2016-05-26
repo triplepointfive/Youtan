@@ -10,16 +10,15 @@ import AST
 import Atom
 import I18n
 
-type Context = Map.Map Expression ClassName
+type Context = Map.Map VariableName ClassName
 
 type Checker a = State ( Seq.Seq Error ) a
 
--- typeCheck ::
-typeCheck nameTable = undefined
+typeCheck :: NameTable -> Seq.Seq Error
+typeCheck nameTable = evalState ( checkNameTable >> get ) Seq.empty
   where
-    currentClass = undefined
-
-    thisContext = Map.singleton ( Variable "this" ) currentClass
+    checkNameTable :: Checker ()
+    checkNameTable = mapM_ checkClass ( Map.toList nameTable )
 
     fields :: ClassName -> Properties
     fields ( ClassName "Object" ) = Map.empty
@@ -33,20 +32,42 @@ typeCheck nameTable = undefined
                     in classMethods foundClass `Map.union`
                        methods ( parentClassName foundClass )
 
-    methodContext :: Method -> Context
-    methodContext Method{..}
-      = thisContext `Map.union`
-        Map.mapKeys Variable args
-
-    check context = undefined
+    checkClass :: ( ClassName, Class ) -> Checker ()
+    checkClass ( className, Class{..} )
+      = mapM_ checkMethod ( Map.toList classMethods )
       where
-        ch :: Expression -> Checker ( Maybe ClassName )
-        ch var@( Variable name ) = case Map.lookup var context of
-          Just typeName -> return ( Just typeName )
-          Nothing       -> do
-            addError VariableHasNoType name
-            return Nothing
+        thisContext = Map.singleton "this" className
 
+        checkMethod :: ( MethodName, Method ) -> Checker ()
+        checkMethod ( mName, Method{..} ) = 
+          check mBody `just` \ returnType ->
+            when ( returnType /= retType ) $
+              addError ( InvalidMethodReturnType mName retType ) returnType
+          where
+            context :: Context
+            context = thisContext `Map.union` args
+
+            check :: Expression -> Checker ( Maybe ClassName )
+            check ( Variable name ) = nothing ( Map.lookup name context )
+               ( addError VariableHasNoType name )
+            check ( AttributeAccess expr attrName ) =
+              check expr `onJust` \ subType ->
+                ( attrName `Map.lookup` fields subType ) `nothing`
+                  addError ( AccessingUknownAttr subType ) attrName
+
+onJust :: Monad m => m ( Maybe a ) -> ( a -> m ( Maybe b ) ) -> m ( Maybe b )
+onJust extr f = do
+  val <- extr
+  case val of
+    Just a  -> f a
+    Nothing -> return Nothing
+
+just :: Monad m => m ( Maybe a ) -> ( a -> m () ) -> m ()
+just v f = void ( onJust v ( f >> return v ) )
+
+nothing :: Monad m => Maybe a -> m b -> m ( Maybe a )
+nothing Nothing f = f >> return Nothing
+nothing v       _ = return v
 
 addError :: ( a -> TypeCheckError ) -> a -> Checker ()
 addError constr arg

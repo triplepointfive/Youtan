@@ -95,6 +95,7 @@ test-suite FJ-test
                      , Lexical
                      , Syntax
                      , Semantic
+                     , TypeChecker
 
 source-repository head
   type:     git

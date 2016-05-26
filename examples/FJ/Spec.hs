@@ -11,6 +11,7 @@ import I18n
 import Lexical ( lexical )
 import Semantic
 import Syntax
+import TypeChecker ( typeCheck )
 
 parse :: Parser Token a -> String -> a
 parse rule input = let Right res = with rule ( lexical input ) in res
@@ -122,3 +123,33 @@ main = hspec $ parallel $ describe "FJ" $ do
       it "Constructor returns another type" $ do
         declareErrors [ classWithTerms [ ConstructorDef "Object" [] ( ConstructorBody [] [] ) ] ] `shouldBe`
           Seq.singleton ( SemanticError ( ConstructorInvalidName "Object" ) )
+
+  describe "Type checker" $ do
+    context "Variable" $ do
+      let check expr = errorMessage <$> ( typeCheck table )
+            where
+              ( Right table ) = semantic ( syntax ( lexical aClass ) )
+              aClass = "class A extends Object { A() { super(); } " ++ expr ++ " }"
+      it "Variable from params" $
+        check "A a( A b ) { return b; }" `shouldBe` Seq.empty
+      it "This is defined" $
+        check "A a() { return this; }" `shouldBe` Seq.empty
+      it "Undefined variable" $
+        check "A a( A b ) { return c; }" `shouldBe`
+          Seq.singleton ( TypeCheckError ( VariableHasNoType "c" ) )
+
+    context "Attribute access" $ do
+      let check expr = errorMessage <$> ( typeCheck table )
+            where
+              ( Right table ) = semantic ( syntax ( lexical aClass ) )
+              aClass = "class A extends Object { Object fst; A() { super(); } " ++ expr ++ " }"
+      it "Accesses self attribute" $
+        check "Object a( A b ) { return this.fst; }" `shouldBe` Seq.empty
+      it "Accesses input variable's attribute" $
+        check "Object a( A b ) { return b.fst; }" `shouldBe` Seq.empty
+      it "Ignores if internal term is undefined" $
+        check "A a( A b ) { return c.fst; }" `shouldBe`
+          Seq.singleton ( TypeCheckError ( VariableHasNoType "c" ) )
+      it "Variable has no that property" $
+        check "A a( A b ) { return this.snd; }" `shouldBe`
+          Seq.singleton ( TypeCheckError ( AccessingUknownAttr "A" "snd" ) )

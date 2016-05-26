@@ -58,11 +58,17 @@ instance Show SemanticError where
 
 data TypeCheckError
   = VariableHasNoType !VariableName
+  | AccessingUknownAttr !ClassName !PropertyName
+  | InvalidMethodReturnType !MethodName !ClassName !ClassName
   deriving Eq
 
 instance Show TypeCheckError where
   show ( VariableHasNoType name ) =
     "could not resolve variable " ++ show name
+  show ( AccessingUknownAttr className name ) =
+    concat [ "class ", show className, " does not have property ", show name ]
+  show ( InvalidMethodReturnType name expected got ) =
+    concat [ "invalid return type of method ", show name, ": expected ", show expected, " got ", show got ]
 
 data Severity
   = Fatal
@@ -87,4 +93,5 @@ data ErrorMessage
   deriving Eq
 
 instance Show ErrorMessage where
-  show ( SemanticError message ) = show message
+  show ( SemanticError  message ) = show message
+  show ( TypeCheckError message ) = show message
