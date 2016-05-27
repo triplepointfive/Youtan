@@ -153,3 +153,22 @@ main = hspec $ parallel $ describe "FJ" $ do
       it "Variable has no that property" $
         check "A a( A b ) { return this.snd; }" `shouldBe`
           Seq.singleton ( TypeCheckError ( AccessingUknownAttr "A" "snd" ) )
+
+    context "Method invocation" $ do
+      let check expr = errorMessage <$> ( typeCheck table )
+            where
+              ( Right table ) = semantic ( syntax ( lexical aClass ) )
+              aClass = "class A extends Object { Object fst; A() { super(); } " ++ expr ++ " }"
+      it "Method with no args" $
+        check "Object a( Object b ) { return this.a( b ); }" `shouldBe` Seq.empty
+      it "Method with single arg" $
+        check "Object a( Object b ) { return this.a( b ); }" `shouldBe` Seq.empty
+      it "Method lacks for an arg" $
+        check "Object a( Object b ) { return this.a(); }" `shouldBe`
+          Seq.singleton ( TypeCheckError ( InvalidNumberOfArgs "a" 1 0 ) )
+      it "Method has extra args" $
+        check "Object a( Object b ) { return this.a( b, this ); }" `shouldBe`
+          Seq.singleton ( TypeCheckError ( InvalidNumberOfArgs "a" 1 2 ) )
+      it "Validates args even if method could not be resolved" $
+        check "Object a( ) { return some.a( b, this ); }" `shouldBe`
+          Seq.fromList [ TypeCheckError ( VariableHasNoType "some" ), TypeCheckError ( VariableHasNoType "b" ) ]

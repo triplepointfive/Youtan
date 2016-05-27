@@ -22,7 +22,7 @@ data Class
     -- TODO: The only usage is to extract parent data. Think of doing it once.
     , parentClassName :: !ClassName
     , classMethods    :: !Methods
-    , constructor     :: !( Maybe Constructor )
+    , constructor     :: !Constructor
     }
   deriving Show
 

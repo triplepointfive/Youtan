@@ -60,6 +60,9 @@ data TypeCheckError
   = VariableHasNoType !VariableName
   | AccessingUknownAttr !ClassName !PropertyName
   | InvalidMethodReturnType !MethodName !ClassName !ClassName
+  | UndefinedMethod !ClassName !MethodName
+  | InvalidNumberOfArgs !MethodName !Int !Int
+  | MethodArgsInvalidType !MethodName !VariableName !ClassName !ClassName
   deriving Eq
 
 instance Show TypeCheckError where
@@ -68,7 +71,16 @@ instance Show TypeCheckError where
   show ( AccessingUknownAttr className name ) =
     concat [ "class ", show className, " does not have property ", show name ]
   show ( InvalidMethodReturnType name expected got ) =
-    concat [ "invalid return type of method ", show name, ": expected ", show expected, " got ", show got ]
+    concat [ "invalid return type of method ", show name,
+      ": expected ", show expected, " got ", show got ]
+  show ( UndefinedMethod className name ) =
+    concat [ "class ", show className, " does not have a method ", show name ]
+  show ( InvalidNumberOfArgs name expected got ) =
+    concat [ "invalid number of arguments for method ", show name,
+      ": expected ", show expected, ", got ", show got ]
+  show ( MethodArgsInvalidType name argName expected got ) =
+    concat [ "method ", show name, " got invalid type for argument ", show argName,
+      ": expected ", show expected, ", got ", show got ]
 
 data Severity
   = Fatal
