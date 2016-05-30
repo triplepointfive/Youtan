@@ -39,6 +39,11 @@ typeCheck nameTable = evalState ( checkNameTable >> get ) Seq.empty
                     in classMethods foundClass `Map.union`
                        methods ( parentClassName foundClass )
 
+    findMethod :: MethodName -> ClassName -> Checker ( Maybe Method )
+    findMethod name subType = nothing
+      ( name `Map.lookup` methods subType )
+      ( addError ( UndefinedMethod subType ) name )
+
     checkClass :: ( ClassName, Class ) -> Checker ()
     checkClass ( className, Class{..} )
       = mapM_ checkMethod ( Map.toList classMethods )
@@ -46,41 +51,56 @@ typeCheck nameTable = evalState ( checkNameTable >> get ) Seq.empty
         thisContext = Map.singleton "this" className
 
         checkMethod :: ( MethodName, Method ) -> Checker ()
-        checkMethod ( mName, Method{..} ) =
-          check mBody `just` \ returnType ->
-            unless ( returnType `isSubtype` retType ) $
-              addError ( InvalidMethodReturnType mName retType ) returnType
+        checkMethod ( mName, method ) = void $
+          checkWithContext context ( mBody method ) `onJust` \ returnType -> do
+            unless ( returnType `isSubtype` retType method ) $
+              addError ( InvalidMethodReturnType mName ( retType method ) ) returnType
+            return Nothing
           where
             context :: Context
-            context = thisContext `Map.union` args
+            context = thisContext `Map.union` args method
 
-            check :: Expression -> Checker ( Maybe ClassName )
-            check ( Variable name ) = nothing ( Map.lookup name context )
-               ( addError VariableHasNoType name )
-            check ( AttributeAccess expr attrName ) =
-              check expr `onJust` \ subType ->
-                ( attrName `Map.lookup` fields subType ) `nothing`
-                  addError ( AccessingUknownAttr subType ) attrName
-            check ( MethodInvocation expr name invocArgs ) = do
-              method <- check expr `onJust` \ subType ->
-                ( name `Map.lookup` methods subType ) `nothing`
-                  addError ( UndefinedMethod subType ) name
-              argsTypes <- allJust <$> mapM check invocArgs
+    checkWithContext :: Context -> Expression -> Checker ( Maybe ClassName )
+    checkWithContext context = check
+      where
+        check :: Expression -> Checker ( Maybe ClassName )
+        check ( Variable name ) = nothing ( Map.lookup name context )
+           ( addError VariableHasNoType name )
+        check ( AttributeAccess expr attrName ) =
+          check expr `onJust` \ subType ->
+            ( attrName `Map.lookup` fields subType ) `nothing`
+              addError ( AccessingUknownAttr subType ) attrName
+        check ( MethodInvocation expr name invocArgs ) =
+          lift2M
+            ( check expr `onJust` findMethod name )
+            ( allJust <$> mapM check invocArgs )
+            validSubexprs
+          where
+            validSubexprs :: Method -> [ ClassName ] -> Checker ClassName
+            validSubexprs foundMethod argsTypes = do
+              if gotCount == expectedCount
+              then
+                forM_ ( zip argsTypes ( Map.toList ( args foundMethod ) ) )
+                  $ \ ( inputType, ( argName, argType ) ) ->
+                    unless ( inputType `isSubtype` argType ) $
+                      addError ( MethodArgsInvalidType
+                        name argName argType ) inputType
+              else
+                addError ( InvalidNumberOfArgs name expectedCount ) gotCount
+              return ( retType foundMethod )
+              where
+                gotCount = length argsTypes
+                expectedCount = Map.size ( args foundMethod )
 
-              onJust ( return $ (,) <$> method <*> argsTypes ) $
-                \ ( Method{..}, argsTypes ) ->
-                  let gotCount = length argsTypes
-                      expectedCount = Map.size args in do
-                  if gotCount /= expectedCount
-                  then
-                    addError ( InvalidNumberOfArgs name expectedCount ) gotCount
-                  else
-                    forM_ ( zip argsTypes ( Map.toList args ) )
-                      $ \ ( inputType, ( argName, argType ) ) ->
-                        unless ( inputType `isSubtype` argType ) $
-                          addError ( MethodArgsInvalidType
-                            name argName argType ) inputType
-                  return ( Just retType )
+lift2M :: Monad m
+       => m ( Maybe a )
+       -> m ( Maybe b )
+       -> ( a -> b -> m c )
+       -> m ( Maybe c )
+lift2M a b f = do
+  x1 <- a
+  x2 <- b
+  onJust ( return $ (,) <$> x1 <*> x2 ) ( fmap Just . uncurry f )
 
 allJust :: [ Maybe a ] -> Maybe [ a ]
 allJust = allJustStep []
@@ -96,9 +116,6 @@ onJust extr f = do
   case val of
     Just a  -> f a
     Nothing -> return Nothing
-
-just :: Monad m => m ( Maybe a ) -> ( a -> m () ) -> m ()
-just v f = void ( onJust v ( f >> return v ) )
 
 nothing :: Monad m => Maybe a -> m b -> m ( Maybe a )
 nothing Nothing f = f >> return Nothing

@@ -125,6 +125,15 @@ main = hspec $ parallel $ describe "FJ" $ do
           Seq.singleton ( SemanticError ( ConstructorInvalidName "Object" ) )
 
   describe "Type checker" $ do
+    context "Method itself" $ do
+      let check expr = errorMessage <$> ( typeCheck table )
+            where
+              ( Right table ) = semantic ( syntax ( lexical aClass ) )
+              aClass = "class A extends Object { Object fst; A() { super(); } " ++ expr ++ " }"
+      it "Invalid return type" $
+        check "A a( Object x2 ) { return x2; }" `shouldBe`
+          Seq.singleton ( TypeCheckError ( InvalidMethodReturnType "a" "A" "Object" ) )
+
     context "Variable" $ do
       let check expr = errorMessage <$> ( typeCheck table )
             where
@@ -172,3 +181,9 @@ main = hspec $ parallel $ describe "FJ" $ do
       it "Validates args even if method could not be resolved" $
         check "Object a( ) { return some.a( b, this ); }" `shouldBe`
           Seq.fromList [ TypeCheckError ( VariableHasNoType "some" ), TypeCheckError ( VariableHasNoType "b" ) ]
+      it "Invalid type of argument" $
+        check "Object a( A x1, Object x2 ) { return x1.a( x2, x2 ); }" `shouldBe`
+          Seq.singleton ( TypeCheckError ( MethodArgsInvalidType "a" "x1" "A" "Object" ) )
+      it "Method is not defined for class" $
+        check "Object a( ) { return this.b(); }" `shouldBe`
+          Seq.singleton ( TypeCheckError ( UndefinedMethod "A" "b" ) )
