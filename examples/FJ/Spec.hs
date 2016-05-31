@@ -88,6 +88,19 @@ main = hspec $ parallel $ describe "FJ" $ do
         parse classDef "class A extends Object { A() { super(); } }" `shouldBe`
           ClassDef ( ClassHead "A" "Object" ) [ ConstructorDef "A" [] ( ConstructorBody [] [] ) ]
 
+      it "Ignores commends" $ do
+        let fileContent = unlines
+              [ "// New class."
+              , "class A extends Object {"
+              , "  // Constructor"
+              , "  A() {"
+              , "    super();"
+              , "  }"
+              , "}"
+              ]
+        parse classDef fileContent `shouldBe`
+          ClassDef ( ClassHead "A" "Object" ) [ ConstructorDef "A" [] ( ConstructorBody [] [] ) ]
+
   describe "Semantic" $ do
     context "Class declaration errors" $ do
       it "Class name is taken" $ do
@@ -123,6 +136,11 @@ main = hspec $ parallel $ describe "FJ" $ do
       it "Constructor returns another type" $ do
         declareErrors [ classWithTerms [ ConstructorDef "Object" [] ( ConstructorBody [] [] ) ] ] `shouldBe`
           Seq.singleton ( SemanticError ( ConstructorInvalidName "Object" ) )
+    context "Method errors" $ do
+      it "Method has same name as class" $ do
+        declareErrors [ classWithTerms [ ConstructorDef "A" [] ( ConstructorBody [] [] )
+                                       , MethodTerm "Object" "A" [] ( Object "Object" [] ) ] ] `shouldBe`
+          Seq.singleton ( SemanticError ( MethodIsConstructor "A" ) )
 
   describe "Type checker" $ do
     context "Method itself" $ do
@@ -187,3 +205,27 @@ main = hspec $ parallel $ describe "FJ" $ do
       it "Method is not defined for class" $
         check "Object a( ) { return this.b(); }" `shouldBe`
           Seq.singleton ( TypeCheckError ( UndefinedMethod "A" "b" ) )
+
+    context "New object" $ do
+      let check expr = errorMessage <$> ( typeCheck table )
+            where
+              ( Right table ) = semantic ( syntax ( lexical ( bClass ++ cClass ++ aClass ) ) )
+              bClass = "class B extends Object { Object fst; B( Object fst ) { super(); this.fst = fst; } }"
+              cClass = "class C extends Object { B fst; C( B fst ) { super(); this.fst = fst; } }"
+              aClass = "class A extends Object { Object fst; A( Object fst ) { super(); this.fst = fst; } " ++ expr ++ " }"
+      it "New with no args" $
+        check "Object a( Object b ) { return new Object(); }" `shouldBe` Seq.empty
+      it "New with single arg" $
+        check "A a( Object b ) { return new A(b); }" `shouldBe` Seq.empty
+      it "New lacks for an arg" $
+        check "A a( Object b ) { return new A(); }" `shouldBe`
+          Seq.singleton ( TypeCheckError ( ConstructorInvalidNumberOfArgs "A" 1 0 ) )
+      it "New has extra args" $
+        check "Object a( Object b ) { return new Object( b ); }" `shouldBe`
+          Seq.singleton ( TypeCheckError ( ConstructorInvalidNumberOfArgs "Object" 0 1 ) )
+      it "Validates args even if method could not be resolved" $
+        check "Object a() { return new D( b ); }" `shouldBe`
+          Seq.fromList [ TypeCheckError ( UnknownType "D" ), TypeCheckError ( VariableHasNoType "b" ) ]
+      it "Invalid type of argument" $
+        check "C a( Object x ) { return new C( x ); }" `shouldBe`
+          Seq.singleton ( TypeCheckError ( ConstructorArgsInvalidType "C" "fst" "B" "Object" ) )

@@ -81,6 +81,7 @@ addClass classes ( ClassDef ( ClassHead name parentClassName ) terms ) = do
                    -> ( ClassName, MethodName, [ ( ClassName, VariableName ) ], Expression )
                    -> Semantic Methods
     validateMethod list ( retVal, mName, args, expr ) = do
+      when ( name `isSame` mName ) ( addError' MethodIsConstructor mName )
       when ( mName `Map.member` list ) ( addError' MethodIsDefined mName )
       when ( retVal `Map.notMember` classes && retVal /= name )
         ( addError' UndefinedClass retVal )

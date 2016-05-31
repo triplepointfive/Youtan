@@ -73,20 +73,16 @@ isIdentifier _ = False
 
 -- Meta rules.
 
-lexem :: Syntax a -> Syntax a
-lexem p = pad ( opt Space ) p ( opt Space )
-
-openBrace, closeBrace, semicolon, dot, space :: Syntax ()
+openBrace, closeBrace, semicolon, dot :: Syntax ()
 openParentheses, closeParentheses, equal, comma :: Syntax ()
-openBrace        = lexem $ term OpenBrace
-closeBrace       = lexem $ term CloseBrace
-openParentheses  = lexem $ term OpenParentheses
-closeParentheses = lexem $ term CloseParentheses
-equal            = lexem $ term Equal
-semicolon        = lexem $ term Semicolon
-dot              = lexem $ term Dot
-comma            = lexem $ term Comma
-space            = term Space
+openBrace        = term OpenBrace
+closeBrace       = term CloseBrace
+openParentheses  = term OpenParentheses
+closeParentheses = term CloseParentheses
+equal            = term Equal
+semicolon        = term Semicolon
+dot              = term Dot
+comma            = term Comma
 
 parenthesesed :: Syntax a -> Syntax a
 parenthesesed p = pad openParentheses p closeParentheses
@@ -100,7 +96,7 @@ listOf = parenthesesed . joins comma
 -- Keywords.
 
 keyword :: String -> Syntax ()
-keyword = lexem . term . Keyword
+keyword = term . Keyword
 
 newKeyword, classKeyword, extendsKeyword :: Syntax ()
 superKeyword, thisKeyword, returnKeyword :: Syntax ()
@@ -131,7 +127,7 @@ variableName = fromString <$> identifier
 -- Top level.
 
 grammar :: Syntax [ ClassDef ]
-grammar = some ( lexem classDef )
+grammar = some classDef
 
 -- Class level.
 
@@ -149,7 +145,7 @@ classTerm :: Syntax ClassTerm
 classTerm = property <|> constructor <|> method
 
 property :: Syntax ClassTerm
-property = Property <$> className <*> ( term Space >> propertyName << semicolon )
+property = Property <$> className <*> ( propertyName << semicolon )
 
 -- Constructor level.
 
@@ -173,21 +169,21 @@ selfAssignment = (,)
 
 method :: Syntax ClassTerm
 method = MethodTerm
-  <$> lexem className
+  <$> className
   <*> methodName'
   <*> listOf methodArg
   <*> braced ( returnKeyword >> expression << semicolon )
 
 methodArg :: Syntax ( ClassName, VariableName )
-methodArg = (,) <$> className <*> ( space >> variableName )
+methodArg = (,) <$> className <*> ( variableName )
 
 constructorArg :: Syntax ( ClassName, PropertyName )
-constructorArg = (,) <$> className <*> ( space >> propertyName )
+constructorArg = (,) <$> className <*> ( propertyName )
 
 -- Expression level.
 
 expression :: Syntax Expression
-expression = lexem ( ( object <|> coercion <|> variable' ) >>= accessor )
+expression = ( object <|> coercion <|> variable' ) >>= accessor
 
 coercion :: Syntax Expression
 coercion = Coercion

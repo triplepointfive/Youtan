@@ -6,6 +6,7 @@ module Atom
 , Properties
 , MethodArguments
 , fromString
+, isSame
 ) where
 
 import qualified Data.Map as Map
@@ -50,3 +51,6 @@ instance Show VariableName where
 type Properties = Map.Map PropertyName ClassName
 
 type MethodArguments = Map.Map VariableName ClassName
+
+isSame :: ClassName -> MethodName -> Bool
+isSame ( ClassName cName ) ( MethodName mName ) = cName == mName

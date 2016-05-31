@@ -3,14 +3,13 @@ module Lexical
 , lexical
 ) where
 
-import Youtan.Lexical.Tokenizer
+import Youtan.Lexical.Tokenizer ( Rules, tokenizeDrops )
 
 data Token
   = OpenBrace
   | CloseBrace
   | OpenParentheses
   | CloseParentheses
-  | Space
   | Equal
   | Semicolon
   | Dot
@@ -29,10 +28,12 @@ rules =
   , ( "=",    const Equal )
   , ( "\\.",  const Dot )
   , ( ",",    const Comma )
-  , ( "\\s+", const Space )
   , ( "(new|class|extends|super|this|return)", Keyword )
   , ( "[^ \n\t(){};=,.]+", Identifier )
   ]
 
+drops :: [ String ]
+drops = [ "\\s+", "\\/\\/[^\n]*" ]
+
 lexical :: String -> [ Token ]
-lexical = tokenize rules
+lexical = tokenizeDrops rules drops

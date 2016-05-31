@@ -21,6 +21,7 @@ data SemanticError
   | UndefinedVariable !VariableName
   | MethodIsDefined !MethodName
   | VariableIsDefined !VariableName
+  | MethodIsConstructor !MethodName
   deriving Eq
 
 instance Show SemanticError where
@@ -55,6 +56,8 @@ instance Show SemanticError where
     concat [ "method ", show name, " has already been defined" ]
   show ( VariableIsDefined name ) =
     concat [ "variable ", show name, " has already been defined" ]
+  show ( MethodIsConstructor name ) =
+    concat [ "constructor ", show name, " cannot have a return type" ]
 
 data TypeCheckError
   = VariableHasNoType !VariableName
@@ -63,6 +66,9 @@ data TypeCheckError
   | UndefinedMethod !ClassName !MethodName
   | InvalidNumberOfArgs !MethodName !Int !Int
   | MethodArgsInvalidType !MethodName !VariableName !ClassName !ClassName
+  | UnknownType !ClassName
+  | ConstructorArgsInvalidType !ClassName !PropertyName !ClassName !ClassName
+  | ConstructorInvalidNumberOfArgs !ClassName !Int !Int
   deriving Eq
 
 instance Show TypeCheckError where
@@ -80,6 +86,14 @@ instance Show TypeCheckError where
       ": expected ", show expected, ", got ", show got ]
   show ( MethodArgsInvalidType name argName expected got ) =
     concat [ "method ", show name, " got invalid type for argument ", show argName,
+      ": expected ", show expected, ", got ", show got ]
+  show ( ConstructorArgsInvalidType name argName expected got ) =
+    concat [ "constructor ", show name, " got invalid type for argument ", show argName,
+      ": expected ", show expected, ", got ", show got ]
+  show ( UnknownType name ) =
+    "unknown type name " ++ show name
+  show ( ConstructorInvalidNumberOfArgs name expected got ) =
+    concat [ "invalid number of arguments for constructor ", show name,
       ": expected ", show expected, ", got ", show got ]
 
 data Severity

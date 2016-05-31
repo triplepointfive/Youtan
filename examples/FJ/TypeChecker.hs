@@ -44,6 +44,11 @@ typeCheck nameTable = evalState ( checkNameTable >> get ) Seq.empty
       ( name `Map.lookup` methods subType )
       ( addError ( UndefinedMethod subType ) name )
 
+    findClass :: ClassName -> Checker ( Maybe Class )
+    findClass name = nothing
+      ( name `Map.lookup` nameTable )
+      ( addError UnknownType name )
+
     checkClass :: ( ClassName, Class ) -> Checker ()
     checkClass ( className, Class{..} )
       = mapM_ checkMethod ( Map.toList classMethods )
@@ -68,7 +73,7 @@ typeCheck nameTable = evalState ( checkNameTable >> get ) Seq.empty
            ( addError VariableHasNoType name )
         check ( AttributeAccess expr attrName ) =
           check expr `onJust` \ subType ->
-            ( attrName `Map.lookup` fields subType ) `nothing`
+            ( attrName `Map.lookup` ( fields subType  )) `nothing`
               addError ( AccessingUknownAttr subType ) attrName
         check ( MethodInvocation expr name invocArgs ) =
           lift2M
@@ -91,6 +96,30 @@ typeCheck nameTable = evalState ( checkNameTable >> get ) Seq.empty
               where
                 gotCount = length argsTypes
                 expectedCount = Map.size ( args foundMethod )
+        check ( Object constrType args ) = do
+          foundClass <- findClass constrType
+          void $ lift2M
+            ( return foundClass )
+            ( allJust <$> mapM check args )
+            ( validSubexprs )
+          onJust
+            ( return foundClass )
+            ( const $ return $ Just constrType )
+          where
+            validSubexprs :: Class -> [ ClassName ] -> Checker ()
+            validSubexprs ( Class _ _ _ Constructor{..} ) argsTypes = do
+              if gotCount == expectedCount
+              then
+                forM_ ( zip argsTypes ( Map.toList constructorArgs ) )
+                  $ \ ( inputType, ( argName, argType ) ) ->
+                    unless ( inputType `isSubtype` argType ) $
+                      addError ( ConstructorArgsInvalidType
+                        constrType argName argType ) inputType
+              else
+                addError ( ConstructorInvalidNumberOfArgs constrType expectedCount ) gotCount
+              where
+                gotCount = length argsTypes
+                expectedCount = Map.size constructorArgs
 
 lift2M :: Monad m
        => m ( Maybe a )
