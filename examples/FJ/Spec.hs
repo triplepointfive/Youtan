@@ -84,7 +84,7 @@ main = hspec $ parallel $ describe "FJ" $ do
           MethodTerm "A" "prop" [] ( Variable "this" )
 
     context "Class" $ do
-      it "Minimal class" $ do
+      it "Minimal class" $
         parse classDef "class A extends Object { A() { super(); } }" `shouldBe`
           ClassDef ( ClassHead "A" "Object" ) [ ConstructorDef "A" [] ( ConstructorBody [] [] ) ]
 
@@ -133,18 +133,18 @@ main = hspec $ parallel $ describe "FJ" $ do
         declareErrors [ classWithTerms [ ConstructorDef "A" [] ( ConstructorBody [] [] )
                                        , ConstructorDef "A" [] ( ConstructorBody [] [] ) ] ] `shouldBe`
           Seq.singleton ( SemanticError ( MultipleConstructorDeclarations "A" ) )
-      it "Constructor returns another type" $ do
+      it "Constructor returns another type" $
         declareErrors [ classWithTerms [ ConstructorDef "Object" [] ( ConstructorBody [] [] ) ] ] `shouldBe`
           Seq.singleton ( SemanticError ( ConstructorInvalidName "Object" ) )
-    context "Method errors" $ do
-      it "Method has same name as class" $ do
+    context "Method errors" $
+      it "Method has same name as class" $
         declareErrors [ classWithTerms [ ConstructorDef "A" [] ( ConstructorBody [] [] )
                                        , MethodTerm "Object" "A" [] ( Object "Object" [] ) ] ] `shouldBe`
           Seq.singleton ( SemanticError ( MethodIsConstructor "A" ) )
 
   describe "Type checker" $ do
     context "Method itself" $ do
-      let check expr = errorMessage <$> ( typeCheck table )
+      let check expr = errorMessage <$> typeCheck table
             where
               ( Right table ) = semantic ( syntax ( lexical aClass ) )
               aClass = "class A extends Object { Object fst; A() { super(); } " ++ expr ++ " }"
@@ -153,7 +153,7 @@ main = hspec $ parallel $ describe "FJ" $ do
           Seq.singleton ( TypeCheckError ( InvalidMethodReturnType "a" "A" "Object" ) )
 
     context "Variable" $ do
-      let check expr = errorMessage <$> ( typeCheck table )
+      let check expr = errorMessage <$> typeCheck table
             where
               ( Right table ) = semantic ( syntax ( lexical aClass ) )
               aClass = "class A extends Object { A() { super(); } " ++ expr ++ " }"
@@ -166,7 +166,7 @@ main = hspec $ parallel $ describe "FJ" $ do
           Seq.singleton ( TypeCheckError ( VariableHasNoType "c" ) )
 
     context "Attribute access" $ do
-      let check expr = errorMessage <$> ( typeCheck table )
+      let check expr = errorMessage <$> typeCheck table
             where
               ( Right table ) = semantic ( syntax ( lexical aClass ) )
               aClass = "class A extends Object { Object fst; A() { super(); } " ++ expr ++ " }"
@@ -182,7 +182,7 @@ main = hspec $ parallel $ describe "FJ" $ do
           Seq.singleton ( TypeCheckError ( AccessingUknownAttr "A" "snd" ) )
 
     context "Method invocation" $ do
-      let check expr = errorMessage <$> ( typeCheck table )
+      let check expr = errorMessage <$> typeCheck table
             where
               ( Right table ) = semantic ( syntax ( lexical aClass ) )
               aClass = "class A extends Object { Object fst; A() { super(); } " ++ expr ++ " }"
@@ -207,7 +207,7 @@ main = hspec $ parallel $ describe "FJ" $ do
           Seq.singleton ( TypeCheckError ( UndefinedMethod "A" "b" ) )
 
     context "New object" $ do
-      let check expr = errorMessage <$> ( typeCheck table )
+      let check expr = errorMessage <$> typeCheck table
             where
               ( Right table ) = semantic ( syntax ( lexical ( bClass ++ cClass ++ aClass ) ) )
               bClass = "class B extends Object { Object fst; B( Object fst ) { super(); this.fst = fst; } }"
@@ -229,3 +229,30 @@ main = hspec $ parallel $ describe "FJ" $ do
       it "Invalid type of argument" $
         check "C a( Object x ) { return new C( x ); }" `shouldBe`
           Seq.singleton ( TypeCheckError ( ConstructorArgsInvalidType "C" "fst" "B" "Object" ) )
+
+    context "Type coercion" $ do
+      let check expr = errorMessage <$> typeCheck table
+            where
+              ( Right table ) = semantic ( syntax ( lexical ( bClass ++ cClass ++ aClass ) ) )
+              bClass = "class B extends Object { B() { super(); } }"
+              cClass = "class C extends B { C() { super(); } }"
+              aClass = "class A extends Object { A() { super(); } " ++ expr ++ " }"
+      it "Type is exactly the same" $
+        check "C a() { return ( C ) new C(); }" `shouldBe` Seq.empty
+      it "Cast to parent class" $
+        check "B a() { return ( B ) new C(); }" `shouldBe` Seq.empty
+      it "Cast to Object via another class" $
+        check "Object a( Object b ) { return ( Object ) new C(); }" `shouldBe` Seq.empty
+      it "Cannot cast parent to a child" $
+        check "C a() { return ( C ) new B(); }" `shouldBe`
+          Seq.singleton ( TypeCheckError ( InvalidTypeCasting "B" "C" ) )
+      it "Cannot cast to unrelated class" $
+        check "A a() { return ( A ) new B(); }" `shouldBe`
+          Seq.singleton ( TypeCheckError ( InvalidTypeCasting "B" "A" ) )
+      it "Returns type even if expression is invalid" $
+        check "B a() { return ( B ) b; }" `shouldBe`
+          Seq.singleton ( TypeCheckError ( VariableHasNoType "b" ) )
+      it "Complains for unknown class" $
+        check "B a() { return ( D ) b; }" `shouldBe`
+          Seq.fromList [ TypeCheckError ( UnknownType "D" ), TypeCheckError ( VariableHasNoType "b" ) ]
+

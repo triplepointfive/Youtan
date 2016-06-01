@@ -69,6 +69,7 @@ data TypeCheckError
   | UnknownType !ClassName
   | ConstructorArgsInvalidType !ClassName !PropertyName !ClassName !ClassName
   | ConstructorInvalidNumberOfArgs !ClassName !Int !Int
+  | InvalidTypeCasting !ClassName !ClassName
   deriving Eq
 
 instance Show TypeCheckError where
@@ -95,6 +96,8 @@ instance Show TypeCheckError where
   show ( ConstructorInvalidNumberOfArgs name expected got ) =
     concat [ "invalid number of arguments for constructor ", show name,
       ": expected ", show expected, ", got ", show got ]
+  show ( InvalidTypeCasting to from ) =
+    concat [ "cannot cast type ", show from, " to ", show to ]
 
 data Severity
   = Fatal
