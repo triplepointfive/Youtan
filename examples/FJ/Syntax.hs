@@ -48,7 +48,7 @@ data ClassHead
 data ClassTerm
   = ConstructorDef
     { buildType       :: !ClassName
-    , args            :: ![ ( ClassName, PropertyName ) ]
+    , constArgs       :: ![ ( ClassName, PropertyName ) ]
     , constructorBody :: !ConstructorBody
     }
   | Property !ClassName !PropertyName

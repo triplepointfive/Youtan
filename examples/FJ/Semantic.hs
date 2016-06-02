@@ -30,23 +30,23 @@ declareClasses = foldM addClass newNameTable
 
 -- TODO: Check parent properties list.
 addClass :: NameTable -> ClassDef -> Semantic NameTable
-addClass classes ( ClassDef ( ClassHead name parentClassName ) terms ) = do
-  definedClass parentClassName /-> addError' MissingParentClass parentClassName
+addClass classes ( ClassDef ( ClassHead name parClassName ) terms ) = do
+  definedClass parClassName /-> addError' MissingParentClass parClassName
   definedClass name --> addError' ClassIsDefined name
 
   properties <- foldM validateProperties Map.empty
     [ ( className, propName ) | Property className propName     <- terms ]
 
-  constructor <- validateConstructor constructors
+  constr <- validateConstructor constructors
 
   validatedMethods <- foldM validateMethod Map.empty methods
 
-  return ( Map.insert name ( Class properties parentClassName validatedMethods constructor ) classes )
+  return ( Map.insert name ( Class properties parClassName validatedMethods constr ) classes )
   where
-    constructors = [ ( retVal, args, body )
-                   | ConstructorDef retVal args body <- terms ]
-    methods      = [ ( retVal, metName, args, body )
-                   | MethodTerm retVal metName args body <- terms ]
+    constructors = [ ( retVal, a, b )
+                   | ConstructorDef retVal a b <- terms ]
+    methods      = [ ( retVal, metName, a, b )
+                   | MethodTerm retVal metName a b <- terms ]
 
     definedClass = flip Map.member classes
     incompleteClass = (==) name
@@ -67,12 +67,12 @@ addClass classes ( ClassDef ( ClassHead name parentClassName ) terms ) = do
     validateConstructor [] = do
       addError' MissingConstructor name
       return ( Constructor [] Map.empty [] )
-    validateConstructor [ ( className, args, ConstructorBody super self ) ] = do
+    validateConstructor [ ( className, argS, ConstructorBody super _ ) ] = do
       when ( className /= name ) ( addError' ConstructorInvalidName className )
 
-      props <- foldM validateProperties Map.empty args
+      props <- foldM validateProperties Map.empty argS
 
-      return $ Constructor ( map snd args ) props super
+      return $ Constructor ( map snd argS ) props super
     validateConstructor ( c : _ ) = do
       addError' MultipleConstructorDeclarations name
       validateConstructor [ c ]
@@ -80,15 +80,22 @@ addClass classes ( ClassDef ( ClassHead name parentClassName ) terms ) = do
     validateMethod :: Methods
                    -> ( ClassName, MethodName, [ ( ClassName, VariableName ) ], Expression )
                    -> Semantic Methods
-    validateMethod list ( retVal, mName, args, expr ) = do
+    validateMethod list ( retVal, mName, argS, expr ) = do
       when ( name `isSame` mName ) ( addError' MethodIsConstructor mName )
       when ( mName `Map.member` list ) ( addError' MethodIsDefined mName )
       when ( retVal `Map.notMember` classes && retVal /= name )
         ( addError' UndefinedClass retVal )
 
-      validatedArgs <- foldM validateMethodArg Map.empty args
+      validatedArgs <- foldM validateMethodArg Map.empty argS
 
-      return ( Map.insert mName ( Method retVal validatedArgs expr ) list )
+      let method = Method
+            { retType   = retVal
+            , args      = validatedArgs
+            , mBody     = expr
+            , argsOrder = map fst argS
+            }
+
+      return ( Map.insert mName method list )
 
     validateMethodArg :: MethodArguments
                       -> ( ClassName, VariableName )

@@ -36,8 +36,9 @@ data Constructor
 
 data Method
   = Method
-    { retType :: !ClassName
-    , args    :: !MethodArguments
-    , mBody   :: !Expression
+    { retType   :: !ClassName
+    , args      :: !MethodArguments
+    , mBody     :: !Expression
+    , argsOrder :: ![ ClassName ]
     }
   deriving Show

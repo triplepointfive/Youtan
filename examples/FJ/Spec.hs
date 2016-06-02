@@ -152,6 +152,40 @@ main = hspec $ parallel $ describe "FJ" $ do
         check "A a( Object x2 ) { return x2; }" `shouldBe`
           Seq.singleton ( TypeCheckError ( InvalidMethodReturnType "a" "A" "Object" ) )
 
+    context "Mehtod overrides" $ do
+      let 
+        check :: String -> String -> Seq.Seq ErrorMessage
+        check bexpr aexpr = errorMessage <$> typeCheck table
+          where
+            ( Right table ) = semantic ( syntax ( lexical ( cClass ++ bClass ++ aClass ) ) )
+            cClass = "class C extends Object { C() { super(); } }"
+            bClass = "class B extends Object { B() { super(); } " ++ bexpr ++ " }"
+            aClass = "class A extends B { A() { super(); } " ++ aexpr ++ " }"
+      it "Changes variable names" $
+        check 
+          "Object a( Object x1 ) { return x1; }" 
+          "Object a( Object x2 ) { return x2; }" 
+          `shouldBe`
+          Seq.empty 
+      it "Changes return type" $
+        check 
+          "Object a( Object x1 ) { return x1; }" 
+          "A a( Object x1 ) { return this; }" 
+          `shouldBe`
+          Seq.singleton ( TypeCheckError ( InvalidSignature "A" "a" ) )
+      it "Different number of args" $
+        check 
+          "Object a( Object x1 ) { return x1; }" 
+          "Object a( Object x1, Object x2 ) { return x2; }" 
+          `shouldBe`
+          Seq.singleton ( TypeCheckError ( InvalidSignature "A" "a" ) )
+      it "Different order of args" $
+        check 
+          "C a( Object x1, C x2 ) { return x2; }" 
+          "C a( C x1, Object x2 ) { return x1; }" 
+          `shouldBe`
+          Seq.singleton ( TypeCheckError ( InvalidSignature "A" "a" ) )
+
     context "Variable" $ do
       let check expr = errorMessage <$> typeCheck table
             where

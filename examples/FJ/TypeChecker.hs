@@ -50,21 +50,40 @@ typeCheck nameTable = evalState ( checkNameTable >> get ) Seq.empty
       ( addError UnknownType name )
 
     checkClass :: ( ClassName, Class ) -> Checker ()
-    checkClass ( className, Class{..} )
-      = mapM_ checkMethod ( Map.toList classMethods )
+    checkClass ( className, curClass )
+      = mapM_ checkMethod ( Map.toList ( classMethods curClass ) )
       where
         thisContext = Map.singleton "this" className
 
         checkMethod :: ( MethodName, Method ) -> Checker ()
-        checkMethod ( mName, method ) = void $
+        checkMethod ( mName, method ) = do
+          void $ onJust
+            ( checkWithContext context ( mBody method ) )
+            $ \ returnType -> do
+              unless ( returnType `isSubtype` retType method ) $
+                addError ( InvalidMethodReturnType mName ( retType method ) ) returnType
+              return Nothing
+          void $ onJust
+            ( return ( parentMethod ( parentClassName curClass ) ) )
+            $ \ parMethod -> do
+              unless 
+                ( retType parMethod == retType method && 
+                  argsOrder parMethod == argsOrder method ) 
+                ( addError ( InvalidSignature className ) mName )
+              return Nothing
+
           -- TODO Validate overrides.
-          checkWithContext context ( mBody method ) `onJust` \ returnType -> do
-            unless ( returnType `isSubtype` retType method ) $
-              addError ( InvalidMethodReturnType mName ( retType method ) ) returnType
-            return Nothing
           where
             context :: Context
             context = thisContext `Map.union` args method
+
+            parentMethod :: ClassName -> Maybe Method
+            parentMethod "Object" = Nothing
+            parentMethod parClassName = mplus
+              ( mName `Map.lookup` classMethods parClass )
+              ( parentMethod ( parentClassName parClass ) )
+              where
+                parClass = nameTable Map.! parClassName
 
     checkWithContext :: Context -> Expression -> Checker ( Maybe ClassName )
     checkWithContext context = check

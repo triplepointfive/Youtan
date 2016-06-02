@@ -70,6 +70,7 @@ data TypeCheckError
   | ConstructorArgsInvalidType !ClassName !PropertyName !ClassName !ClassName
   | ConstructorInvalidNumberOfArgs !ClassName !Int !Int
   | InvalidTypeCasting !ClassName !ClassName
+  | InvalidSignature !ClassName !MethodName
   deriving Eq
 
 instance Show TypeCheckError where
@@ -98,6 +99,9 @@ instance Show TypeCheckError where
       ": expected ", show expected, ", got ", show got ]
   show ( InvalidTypeCasting to from ) =
     concat [ "cannot cast type ", show from, " to ", show to ]
+  show ( InvalidSignature name method ) =
+    concat [ "method ", show method, " of class ", show name,
+      " must have the same signature as its parent class" ]
 
 data Severity
   = Fatal
