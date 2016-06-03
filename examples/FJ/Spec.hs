@@ -3,6 +3,8 @@ module Main where
 
 import qualified Data.Sequence as Seq
 
+import qualified Data.Map as Map
+
 import Control.Monad.State
 import Test.Hspec
 
@@ -12,6 +14,7 @@ import Lexical ( lexical )
 import Semantic
 import Syntax
 import TypeChecker ( typeCheck )
+import Eval
 
 parse :: Parser Token a -> String -> a
 parse rule input = let Right res = with rule ( lexical input ) in res
@@ -153,7 +156,7 @@ main = hspec $ parallel $ describe "FJ" $ do
           Seq.singleton ( TypeCheckError ( InvalidMethodReturnType "a" "A" "Object" ) )
 
     context "Mehtod overrides" $ do
-      let 
+      let
         check :: String -> String -> Seq.Seq ErrorMessage
         check bexpr aexpr = errorMessage <$> typeCheck table
           where
@@ -162,27 +165,27 @@ main = hspec $ parallel $ describe "FJ" $ do
             bClass = "class B extends Object { B() { super(); } " ++ bexpr ++ " }"
             aClass = "class A extends B { A() { super(); } " ++ aexpr ++ " }"
       it "Changes variable names" $
-        check 
-          "Object a( Object x1 ) { return x1; }" 
-          "Object a( Object x2 ) { return x2; }" 
+        check
+          "Object a( Object x1 ) { return x1; }"
+          "Object a( Object x2 ) { return x2; }"
           `shouldBe`
-          Seq.empty 
+          Seq.empty
       it "Changes return type" $
-        check 
-          "Object a( Object x1 ) { return x1; }" 
-          "A a( Object x1 ) { return this; }" 
+        check
+          "Object a( Object x1 ) { return x1; }"
+          "A a( Object x1 ) { return this; }"
           `shouldBe`
           Seq.singleton ( TypeCheckError ( InvalidSignature "A" "a" ) )
       it "Different number of args" $
-        check 
-          "Object a( Object x1 ) { return x1; }" 
-          "Object a( Object x1, Object x2 ) { return x2; }" 
+        check
+          "Object a( Object x1 ) { return x1; }"
+          "Object a( Object x1, Object x2 ) { return x2; }"
           `shouldBe`
           Seq.singleton ( TypeCheckError ( InvalidSignature "A" "a" ) )
       it "Different order of args" $
-        check 
-          "C a( Object x1, C x2 ) { return x2; }" 
-          "C a( C x1, Object x2 ) { return x1; }" 
+        check
+          "C a( Object x1, C x2 ) { return x2; }"
+          "C a( C x1, Object x2 ) { return x1; }"
           `shouldBe`
           Seq.singleton ( TypeCheckError ( InvalidSignature "A" "a" ) )
 
@@ -290,3 +293,36 @@ main = hspec $ parallel $ describe "FJ" $ do
         check "B a() { return ( D ) b; }" `shouldBe`
           Seq.fromList [ TypeCheckError ( UnknownType "D" ), TypeCheckError ( VariableHasNoType "b" ) ]
 
+  describe "Eval" $ do
+    let table classes = r
+          where Right r = semantic $ syntax $ lexical $ concat classes
+    -- TODO: Parse raw strings instead of building trees manually.
+    context "Variables" $ do
+      it "Context variable" $
+        eval
+          ( Map.singleton "fst" ( Value "A" Map.empty ) )
+          ( table [ "class A extends Object { A() { super(); } }" ]  )
+          ( Variable "fst" )
+          `shouldBe` Value "A" Map.empty
+
+    context "New object" $ do
+      it "Empty object" $
+        eval
+          Map.empty
+          ( table [ "class A extends Object { A() { super(); } }" ]  )
+          ( Object "Object" [] )
+          `shouldBe` Value "Object" Map.empty
+
+      it "Pass arg to constructor" $
+        eval
+          Map.empty
+          ( table [ "class A extends Object { Object fst; A( Object fst ) { super(); this.fst = fst; } }" ]  )
+          ( Object "A" [ Object "Object" [] ] )
+          `shouldBe` Value "A" ( Map.singleton "fst" ( Value "Object" Map.empty ) )
+
+      it "Use variables" $
+        eval
+          ( Map.singleton "fst" ( Value "Object" Map.empty ) )
+          ( table [ "class A extends Object { Object fst; A( Object fst ) { super(); this.fst = fst; } }" ]  )
+          ( Object "A" [ Variable "fst" ] )
+          `shouldBe` Value "A" ( Map.singleton "fst" ( Value "Object" Map.empty ) )

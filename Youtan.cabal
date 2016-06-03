@@ -72,6 +72,7 @@ executable FJ
   default-language:    Haskell2010
   other-modules:       Atom
                      , AST
+                     , Eval
                      , I18n
                      , Lexical
                      , Syntax

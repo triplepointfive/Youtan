@@ -23,7 +23,10 @@ nameTable :: Classes -> Either Errors NameTable
 nameTable classes = evalState ( declareClasses classes >>= anyOf ) Seq.empty
 
 newNameTable :: NameTable
-newNameTable = Map.singleton "Object" ( Class Map.empty "Object" Map.empty ( Constructor [] Map.empty [] ) )
+newNameTable = Map.singleton "Object" ( Class Map.empty "Object" Map.empty emptyConstr )
+
+emptyConstr :: Constructor
+emptyConstr = Constructor [] Map.empty [] Map.empty
 
 declareClasses :: Classes -> Semantic NameTable
 declareClasses = foldM addClass newNameTable
@@ -66,13 +69,18 @@ addClass classes ( ClassDef ( ClassHead name parClassName ) terms ) = do
                         -> Semantic Constructor
     validateConstructor [] = do
       addError' MissingConstructor name
-      return ( Constructor [] Map.empty [] )
-    validateConstructor [ ( className, argS, ConstructorBody super _ ) ] = do
+      return emptyConstr
+    validateConstructor [ ( className, argS, ConstructorBody super self ) ] = do
       when ( className /= name ) ( addError' ConstructorInvalidName className )
 
       props <- foldM validateProperties Map.empty argS
 
-      return $ Constructor ( map snd argS ) props super
+      return Constructor
+        { inputProps      = map snd argS
+        , constructorArgs = props
+        , superArgs       = super
+        , assigns         = Map.fromList self
+        }
     validateConstructor ( c : _ ) = do
       addError' MultipleConstructorDeclarations name
       validateConstructor [ c ]

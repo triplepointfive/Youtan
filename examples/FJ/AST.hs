@@ -28,9 +28,14 @@ data Class
 
 data Constructor
   = Constructor
+    -- | List of input args in the original order.
     { inputProps      :: ![ PropertyName ]
+    -- | Input args with their types.
     , constructorArgs :: !Properties
+    -- | List of variables, passed to super call.
     , superArgs       :: ![ PropertyName ]
+    -- | Assignments in body.
+    , assigns         :: !( Map.Map PropertyName PropertyName )
     }
   deriving Show
 
