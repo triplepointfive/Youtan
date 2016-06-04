@@ -22,7 +22,6 @@ library
                      , Youtan.Regex.NDFM
                      , Youtan.Regex.Operators
                      , Youtan.Regex.OperatorsExtra
-                     , Youtan.Syntax.CFG
                      , Youtan.Syntax.Parser
   build-depends:       base >= 4.7 && < 5
                      , containers
@@ -59,7 +58,6 @@ test-suite Youtan-test
                      , Youtan.Regex.DFMTest
                      , Youtan.Regex.OperatorsTest
                      , Youtan.Regex.FMTestCases
-                     , Youtan.Syntax.CFGTest
 
 executable FJ
   hs-source-dirs:      examples/FJ
