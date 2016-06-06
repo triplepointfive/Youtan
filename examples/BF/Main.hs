@@ -1,8 +1,7 @@
 module Main where
 
-import           Control.Arrow
 import           Control.Monad.State
-import           Data.Char ( chr )
+import           Data.Char ( chr, ord )
 import qualified Data.Sequence as Seq
 
 import Youtan.Lexical.Tokenizer
@@ -34,7 +33,7 @@ rules =
   , ( "<", const DecrP )
   , ( "\\+", const IncrB )
   , ( "-", const DecrB )
-  , ( ".", const Output )
+  , ( "\\.", const Output )
   , ( ",", const Input )
   , ( "\\[", const Begin )
   , ( "\\]", const End )
@@ -48,23 +47,41 @@ lexical = tokenizeDrops rules drops
 
 type Cell = Int
 
-type Memory = ( Int, Seq.Seq Int )
+type Memory = ( Seq.Seq Int, Int, Seq.Seq Int )
 
 type BF r = StateT Memory IO r
 
+newMemory :: Memory
+newMemory = ( Seq.empty, 0, Seq.empty )
+
 eval :: Token -> BF ()
+eval IncrB = modify ( second succ )
+eval DecrB = modify ( second pred )
 eval IncrP = do
-  modify ( first succ )
-  ( v, s ) <- get
-  when ( v >= Seq.length s ) $
-    modify ( second ( Seq.|> 0 ) )
+  ( p, v, n ) <- get
+  case Seq.viewl n of
+    x Seq.:< xs -> put ( p Seq.|> v, x, xs )
+    Seq.EmptyL  -> put ( p Seq.|> v, 0, n )
 eval DecrP = do
-  v <- fst <$> get
-  if v == 0
-    then
-      modify ( second ( 0 Seq.<| ) )
-    else
-      modify ( first pred )
+  ( p, v, n ) <- get
+  case Seq.viewr p of
+    xs Seq.:> x -> put ( xs, x, v Seq.<| n )
+    Seq.EmptyR  -> put (  p, 0, v Seq.<| n )
+eval Output = do
+  ( _, v, _ ) <- get
+  lift ( putChar ( chr v ) )
+eval Input = do
+  v <- lift getChar
+  modify ( second ( const ( ord v ) ) )
 
 main :: IO ()
 main = return ()
+
+first :: ( a -> a ) -> ( a, b, c ) -> ( a, b, c )
+first f ( a, b, c ) = ( f a, b, c )
+
+second :: ( b -> b ) -> ( a, b, c ) -> ( a, b, c )
+second f ( a, b, c ) = ( a, f b, c )
+
+third :: ( c -> c ) -> ( a, b, c ) -> ( a, b, c )
+third f ( a, b, c ) = ( a, b, f c )
