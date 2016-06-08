@@ -50,8 +50,7 @@ lexical = tokenizeDrops rules drops
 -- Syntax.
 
 data Action
-  = IncrValue
-  | DecrValue
+  = ChangeValue !Int
   | MoveForth
   | MoveBack
   | Output
@@ -60,10 +59,10 @@ data Action
   deriving ( Eq )
 
 instance Show Action where
-  show IncrValue        = ">"
-  show DecrValue        = "<"
-  show MoveForth        = "+"
-  show MoveBack         = "-"
+  show ( ChangeValue n ) | n > 0     = replicate n '+'
+                         | otherwise = replicate ( abs n ) '-'
+  show MoveForth        = ">"
+  show MoveBack         = "<"
   show Output           = "."
   show Input            = ","
   show ( Loop actions ) = "[" ++ concatMap show actions ++ "]"
@@ -72,8 +71,8 @@ syntax :: [ Token ] -> Either [ ( [ Action ], [ Token ] ) ] [ Action ]
 syntax = runParser grammar
   where
     incrV, decrV, moveF, moveb, action :: Parser Token Action
-    incrV  = const IncrValue <$> term IncrB
-    decrV  = const DecrValue <$> term DecrB
+    incrV  = const ( ChangeValue    1   ) <$> term IncrB
+    decrV  = const ( ChangeValue ( -1 ) ) <$> term DecrB
     moveF  = const MoveForth <$> term IncrP
     moveb  = const MoveBack  <$> term DecrP
     output = const Output    <$> term Out
@@ -85,13 +84,22 @@ syntax = runParser grammar
     grammar = many action
 
 -- Semantic.
--- Actually is not mandatory, but it's possible to check the code
--- has no meaning less actions, like ask for input twice or nested empty
--- cycles etc.
 
 semantic :: Either [ ( [ Action ], [ Token ] ) ] [ Action ] -> [ Action ]
 semantic ( Left x )  = error ( show x )
-semantic ( Right l ) = l
+semantic ( Right l ) = case l of
+                         [] -> []
+                         ( x : xs ) -> group x xs
+  where
+    group :: Action -> [ Action ] -> [ Action ]
+    group x [] = [ x ]
+    group ( ChangeValue n ) ( ChangeValue x : xs ) = group ( ChangeValue ( n + x ) ) xs
+    group x ( f : xs ) = x : group f xs
+
+count :: [ Action ] -> Int
+count [] = 0
+count ( Loop a : xs ) = 1 + count a + count xs
+count ( _ : xs ) = 1 + count xs
 
 -- Interpret.
 
@@ -104,8 +112,7 @@ interpret actions = evalStateT ( mapM_ eval actions >> get ) newMemory
     newMemory = ( Seq.empty, 0, Seq.empty )
 
     eval :: Action -> StateT Memory IO ()
-    eval IncrValue = modify ( second succ )
-    eval DecrValue = modify ( second pred )
+    eval ( ChangeValue n ) = modify ( second ( + n ) )
     eval MoveForth = do
       ( p, v, n ) <- get
       case Seq.viewl n of
