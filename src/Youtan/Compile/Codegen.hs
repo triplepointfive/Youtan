@@ -1,15 +1,13 @@
-{-# LANGUAGE OverloadedStrings #-}
+-- {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Youtan.Compile.Codegen where
 
-import Data.Word
-import Data.String
+-- import Data.String
 import Data.List
 import Data.Function
 import qualified Data.Map as Map
 
 import Control.Monad.State
-import Control.Applicative
 
 import LLVM.General.AST
 import LLVM.General.AST.Global
@@ -76,8 +74,8 @@ uniqueName nm ns =
     Nothing -> (nm,  Map.insert nm 1 ns)
     Just ix -> (nm ++ show ix, Map.insert nm (ix+1) ns)
 
-instance IsString Name where
-  fromString = Name . fromString
+-- instance IsString Name where
+  -- fromString = Name . fromString
 
 -------------------------------------------------------------------------------
 -- Codegen State
