@@ -7,6 +7,11 @@ import qualified Data.Sequence as Seq
 import           Youtan.Lexical.Tokenizer ( Rules, tokenizeDrops )
 import           Youtan.Syntax.Parser ( term, (<<), many, runParser, Parser )
 
+-- import           Youtan.Compile.Codegen
+
+-- import LLVM.General.Module
+-- import LLVM.General.Context
+
 -- Lexical.
 
 data Token
@@ -111,6 +116,9 @@ interpret actions = evalStateT ( mapM_ eval actions >> get ) newMemory
     newMemory :: Memory
     newMemory = ( Seq.empty, 0, Seq.empty )
 
+    second :: ( b -> b ) -> ( a, b, c ) -> ( a, b, c )
+    second f ( a, b, c ) = ( a, f b, c )
+
     eval :: Action -> StateT Memory IO ()
     eval ( ChangeValue n ) = modify ( second ( + n ) )
     eval MoveForth = do
@@ -134,8 +142,10 @@ interpret actions = evalStateT ( mapM_ eval actions >> get ) newMemory
       when ( v /= 0 )
         ( mapM_ eval list >> eval l )
 
+-- Compiling.
+
 main :: IO ()
 main = return ()
-
-second :: ( b -> b ) -> ( a, b, c ) -> ( a, b, c )
-second f ( a, b, c ) = ( a, f b, c )
+  -- c <- codegen cM astModule []
+  -- print c
+  -- void $ codegen cM astModule []

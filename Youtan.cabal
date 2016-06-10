@@ -16,7 +16,8 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   ghc-options:         -rtsopts -with-rtsopts=-N -Wall
-  exposed-modules:     Youtan.Lexical.Tokenizer
+  exposed-modules:     Youtan.Compile.Codegen
+                     , Youtan.Lexical.Tokenizer
                      , Youtan.Regex.FM
                      , Youtan.Regex.DFM
                      , Youtan.Regex.NDFM
@@ -26,7 +27,7 @@ library
   build-depends:       base >= 4.7 && < 5
                      , containers
                      , mtl
-                     , template-haskell
+                     , llvm-general-pure
   default-language:    Haskell2010
   other-modules:       Youtan.Utils
 
@@ -84,7 +85,7 @@ executable BF
                      , containers
                      , mtl
                      , Youtan
-                     , llvm-general-pure
+                     -- , llvm-general
   default-language:    Haskell2010
 
 test-suite FJ-test
