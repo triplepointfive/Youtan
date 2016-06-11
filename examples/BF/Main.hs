@@ -157,12 +157,16 @@ codegenTop exp = do
       entry <- addBlock entryBlockName
       setBlock entry
 
+      -- Counter for position in a memory array.
+      i <- alloca int
+      cgen ( ChangeValue 0 ) >>= store v i
+
       v <- alloca int
       c <- cgen ( ChangeValue 3 )
       store v c
       assign "a" v
 
-      -- mapM_ cgen exp 
+      -- mapM_ cgen exp
       -- (return $ cons $ C.Int 32 0) >>= ret
       ( getvar "a" >>= load ) >>= ret
 
