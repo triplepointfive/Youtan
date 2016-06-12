@@ -159,7 +159,7 @@ codegenTop exp = do
 
       -- Counter for position in a memory array.
       i <- alloca int
-      cgen ( ChangeValue 0 ) >>= store v i
+      cgen ( ChangeValue 0 ) >>= store i
 
       v <- alloca int
       c <- cgen ( ChangeValue 3 )
