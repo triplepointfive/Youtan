@@ -13,6 +13,7 @@ import LLVM.General.AST
 import LLVM.General.AST.Global
 import qualified LLVM.General.AST as AST
 
+import qualified LLVM.General.AST.AddrSpace as AS
 import qualified LLVM.General.AST.Constant as C
 import qualified LLVM.General.AST.Attribute as A
 import qualified LLVM.General.AST.CallingConvention as CC
@@ -202,8 +203,8 @@ assign var x = do
   lcls <- gets symtab
   modify $ \s -> s { symtab = [(var, x)] ++ lcls }
 
-getvar :: String -> Codegen Operand
-getvar var = do
+getVar :: String -> Codegen Operand
+getVar var = do
   syms <- gets symtab
   case lookup var syms of
     Just x  -> return x
@@ -234,8 +235,20 @@ fmul a b = instr $ FMul NoFastMathFlags a b []
 fdiv :: Operand -> Operand -> Codegen Operand
 fdiv a b = instr $ FDiv NoFastMathFlags a b []
 
+add :: Operand -> Operand -> Codegen Operand
+add a b = instr $ Add False False a b []
+
+getPtr :: Operand -> [ Operand ] -> Codegen Operand
+getPtr addr idx = instr $ GetElementPtr False addr idx []
+
+bitCast :: Operand -> Type -> Codegen Operand
+bitCast from to = instr $ BitCast from to []
+
 fcmp :: FP.FloatingPointPredicate -> Operand -> Operand -> Codegen Operand
 fcmp cond a b = instr $ FCmp cond a b []
+
+pointer :: Type -> Type
+pointer t = PointerType t ( AS.AddrSpace 0 )
 
 cons :: C.Constant -> Operand
 cons = ConstantOperand

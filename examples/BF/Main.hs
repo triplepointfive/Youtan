@@ -9,6 +9,7 @@ import           Youtan.Syntax.Parser ( term, (<<), many, runParser, Parser )
 
 import LLVM.General.AST
 import qualified LLVM.General.AST.Constant as C
+import qualified LLVM.General.AST.CallingConvention as CC
 import           Youtan.Compile.Codegen hiding ( term )
 
 import LLVM.General.Module
@@ -143,37 +144,75 @@ interpret actions = evalStateT ( mapM_ eval actions >> get ) newMemory
 
 -- Compiling.
 
-int :: Type
+int, i8 :: Type
 int = IntegerType 32
+i8  = IntegerType 8
 
--- initModule :: AST.Module
-initModule = emptyModule "my cool jit"
+memory :: Type
+memory = ArrayType 100 int
+
+val = cons . C.Int 32 . fromIntegral
 
 codegenTop :: [ Action ] -> LLVM ()
 codegenTop exp = do
+  define VoidType "llvm.memset.p0i8.i64" [ ( pointer i8, UnName 0 )
+                                         , ( i8, UnName 0 )
+                                         , ( IntegerType 64, UnName 0 )
+                                         , ( int, UnName 0 )
+                                         , ( IntegerType 1, UnName 0 )
+                                         ] []
+
+  define int "putchar" [ ( int, UnName 0 ) ] []
+
+  define int "getchar" [] []
   define int "main" [] blks
   where
     blks = createBlocks $ execCodegen $ do
       entry <- addBlock entryBlockName
       setBlock entry
 
-      -- Counter for position in a memory array.
+      -- Position in a memory array.
       i <- alloca int
-      cgen ( ChangeValue 0 ) >>= store i
+      assign "i" i
+      store i ( val 0 )
 
-      v <- alloca int
-      c <- cgen ( ChangeValue 3 )
-      store v c
-      assign "a" v
+      m <- alloca memory
+      assign "m" m
 
-      -- mapM_ cgen exp
-      -- (return $ cons $ C.Int 32 0) >>= ret
-      ( getvar "a" >>= load ) >>= ret
+      b <- bitCast m ( pointer i8 )
 
-cgen :: Action -> Codegen Operand
-cgen ( ChangeValue x ) = return $ cons $ C.Int 32 $ toInteger x
--- cgen (S.Float n) = return $ cons $ C.Float (F.Double n)
+      call ( externf ( Name "llvm.memset.p0i8.i64" ) )
+        [ b
+        , cons ( C.Int 8 0    )
+        , cons ( C.Int 64 400 )
+        , cons ( C.Int 32 32  )
+        , cons ( C.Int 1 0    )
+        ]
 
+      mapM_ cgen exp
+
+      ret ( val 0 )
+
+cgen :: Action -> Codegen ()
+cgen ( ChangeValue x ) = do
+  i <- getVar "i" >>= load
+  m <- getVar "m"
+
+  p <- getPtr m [ val 0, i ]
+  v <- load p >>= add ( val x )
+  store p v
+
+  return ()
+cgen ( Output ) = do
+  i <- getVar "i" >>= load
+  m <- getVar "m"
+
+  p <- getPtr m [ val 0, i ]
+  v <- load p
+
+  call ( externf ( Name "putchar" ) ) [ v ]
+
+  return ()
 
 liftError :: ExceptT String IO a -> IO a
 liftError = runExceptT >=> either fail return
@@ -191,8 +230,11 @@ codegen mod fns = withContext $ \context ->
 
 main :: IO ()
 main = do
-  codegen initModule [ [ ChangeValue 3 ] ]
+  codegen initModule [ [ ChangeValue 97, Output ] ]
   return ()
+  where
+    initModule = emptyModule "BF"
+
   -- c <- codegen cM astModule []
   -- print c
   -- void $ codegen cM astModule []
