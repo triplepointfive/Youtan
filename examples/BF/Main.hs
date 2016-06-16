@@ -3,6 +3,7 @@ module Main where
 import           Control.Monad.State
 import           Data.Char ( chr, ord )
 import qualified Data.Sequence as Seq
+import           System.Environment ( getArgs )
 
 import           Youtan.Lexical.Tokenizer ( Rules, tokenizeDrops )
 import           Youtan.Syntax.Parser ( term, (<<), many, runParser, Parser )
@@ -11,6 +12,7 @@ import LLVM.General.AST
 import qualified LLVM.General.AST.Constant as C
 import qualified LLVM.General.AST.CallingConvention as CC
 import           Youtan.Compile.Codegen hiding ( term )
+import qualified LLVM.General.AST.IntegerPredicate as IP
 
 import LLVM.General.Module
 import LLVM.General.Context
@@ -161,12 +163,35 @@ codegenTop exp = do
                                          , ( int, UnName 0 )
                                          , ( IntegerType 1, UnName 0 )
                                          ] []
-
   define int "putchar" [ ( int, UnName 0 ) ] []
-
   define int "getchar" [] []
+
+  define int "l1" [ ( pointer int, Name "i" ), ( pointer memory, Name "m" )  ] bs
+
   define int "main" [] blks
   where
+    bs = createBlocks $ execCodegen $ do
+      entry <- addBlock entryBlockName
+      setBlock entry
+
+      iV <- load ( local $ Name "i" )
+      mP <- getPtr ( local $ Name "m" ) [ val 0, iV ]
+      mv <- load mP
+
+      ifthen <- addBlock "if.then"
+      ifelse <- addBlock "if.else"
+
+      test <- cmp IP.NE ( val 0 ) mv
+      cbr test ifthen ifelse
+
+      setBlock ifelse
+      test <- cmp IP.NE ( val 0 ) mv
+      cbr test ifthen ifelse
+
+      setBlock ifthen
+      ret ( val 0 )
+
+
     blks = createBlocks $ execCodegen $ do
       entry <- addBlock entryBlockName
       setBlock entry
@@ -189,34 +214,77 @@ codegenTop exp = do
         , cons ( C.Int 1 0    )
         ]
 
-      mapM_ cgen exp
+      iV <- load i
+      mP <- getPtr m [ val 0, iV ]
+      mV <- load mP
+
+      foldM_ cgen ( iV, mP, mV ) exp
 
       ret ( val 0 )
 
-cgen :: Action -> Codegen ()
-cgen ( ChangeValue x ) = do
-  i <- getVar "i" >>= load
-  m <- getVar "m"
-
-  p <- getPtr m [ val 0, i ]
-  v <- load p >>= add ( val x )
+cgen :: ( Operand, Operand, Operand ) -> Action -> Codegen ( Operand, Operand, Operand )
+cgen ( i, p, mv ) ( ChangeValue x ) = do
+  v <- add ( val x ) mv
   store p v
+  return ( i, p, v )
+cgen ( i, _, _ ) MoveForth = do
+  iP <- getVar "i"
+  nI <- add ( val 1 ) i
+  store nI iP
 
-  return ()
-cgen ( Output ) = do
-  i <- getVar "i" >>= load
   m <- getVar "m"
+  mP <- getPtr m [ val 0, nI ]
+  mV <- load mP
 
-  p <- getPtr m [ val 0, i ]
-  v <- load p
+  return ( nI, mP, mV )
+cgen ( i, _, _ ) MoveBack = do
+  iP <- getVar "i"
+  nI <- add ( val ( -1 ) ) i
+  store nI iP
 
-  call ( externf ( Name "putchar" ) ) [ v ]
+  m <- getVar "m"
+  mP <- getPtr m [ val 0, nI ]
+  mV <- load mP
 
-  return ()
+  return ( nI, mP, mV )
+cgen ( i, p, mv ) Output = do
+  call ( externf ( Name "putchar" ) ) [ mv ]
+  return ( i, p, mv )
+cgen state@( i, p, mv ) ( Loop list ) = do
+  ifthen <- addBlock ( "if.then" )
+  ifelse <- addBlock ( "if.else" )
+  ifexit <- addBlock ( "if.exit" )
+
+  -- Entry.
+
+  test <- cmp IP.NE ( val 0 ) mv
+  cbr test ifthen ifelse
+
+  -- ifthen.
+  setBlock ifthen
+  foldM_ cgen state list
+
+  ifVal <- alloca int
+  store ifVal ( val 0 )
+  br ifexit
+  ifthen <- getBlock
+
+  -- ifelse.
+  setBlock ifelse
+
+  elseVal <- alloca int
+  store elseVal ( val 1 )
+  br ifexit
+  ifelse <- getBlock
+
+  -- ifexit.
+  setBlock ifexit
+  phi int [ ( ifVal, ifthen ), ( elseVal, ifelse ) ]
+
+  return state
 
 liftError :: ExceptT String IO a -> IO a
 liftError = runExceptT >=> either fail return
-
 
 -- codegen :: AST.Module -> [S.Expr] -> IO AST.Module
 codegen mod fns = withContext $ \context ->
@@ -230,11 +298,14 @@ codegen mod fns = withContext $ \context ->
 
 main :: IO ()
 main = do
-  codegen initModule [ [ ChangeValue 97, Output ] ]
+  -- [ file ] <- getArgs
+  -- acts <- ( semantic . syntax . lexical ) <$> readFile file
+
+  codegen initModule [ [ ChangeValue 97, Output ]]
+
+  -- codegen initModule [ [ ChangeValue 97
+                       -- , MoveForth, ChangeValue 2, Loop [ ChangeValue ( -1 ) ]
+                       -- , MoveBack, Output ] ]-- [ acts ]
   return ()
   where
     initModule = emptyModule "BF"
-
-  -- c <- codegen cM astModule []
-  -- print c
-  -- void $ codegen cM astModule []

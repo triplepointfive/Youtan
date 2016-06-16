@@ -18,6 +18,7 @@ import qualified LLVM.General.AST.Constant as C
 import qualified LLVM.General.AST.Attribute as A
 import qualified LLVM.General.AST.CallingConvention as CC
 import qualified LLVM.General.AST.FloatingPointPredicate as FP
+import qualified LLVM.General.AST.IntegerPredicate as IP
 
 -------------------------------------------------------------------------------
 -- Module Level
@@ -244,6 +245,9 @@ getPtr addr idx = instr $ GetElementPtr False addr idx []
 bitCast :: Operand -> Type -> Codegen Operand
 bitCast from to = instr $ BitCast from to []
 
+cmp :: IP.IntegerPredicate -> Operand -> Operand -> Codegen Operand
+cmp cond a b = instr $ ICmp cond a b []
+
 fcmp :: FP.FloatingPointPredicate -> Operand -> Operand -> Codegen Operand
 fcmp cond a b = instr $ FCmp cond a b []
 
@@ -281,3 +285,6 @@ cbr cond tr fl = terminator $ Do $ CondBr cond tr fl []
 
 ret :: Operand -> Codegen (Named Terminator)
 ret val = terminator $ Do $ Ret (Just val) []
+
+phi :: Type -> [(Operand, Name)] -> Codegen Operand
+phi ty incoming = instr $ Phi ty incoming []
