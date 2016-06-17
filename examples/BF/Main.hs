@@ -1,7 +1,9 @@
 module Main where
 
 import           Control.Monad.State
+import           Control.Arrow ( first, second )
 import           Data.Char ( chr, ord )
+import qualified Data.Map as M
 import qualified Data.Sequence as Seq
 import           System.Environment ( getArgs )
 
@@ -106,6 +108,8 @@ semantic ( Right l ) = case l of
     group :: Action -> [ Action ] -> [ Action ]
     group x [] = [ x ]
     group ( ChangeValue n ) ( ChangeValue x : xs ) = group ( ChangeValue ( n + x ) ) xs
+    group x@( Loop [] ) ( f : xs ) = x : group f xs
+    group ( Loop ( l : ls ) ) ( f : xs ) = ( Loop ( group l ls ) ) : group f xs
     group x ( f : xs ) = x : group f xs
 
 -- Interpret.
@@ -146,6 +150,44 @@ interpret actions = evalStateT ( mapM_ eval actions >> get ) newMemory
 
 -- Compiling.
 
+data Instr
+  = ICall !String
+  | IIncr !Int
+  | IMvPt !Int
+  | IPutC
+  | IGetC
+  deriving ( Show )
+
+type Instrs = M.Map String [ Instr ]
+
+type InstrB a = State ( Int, Instrs ) a
+
+preproc :: [ Action ] -> Instrs
+preproc list = evalState ( addMain >> ( snd <$> get ) ) ( 0, M.empty )
+  where
+    addMain :: InstrB ()
+    addMain = do
+      instrs <- mapM buildInstr list
+      modify ( second ( M.insert "main" instrs ) )
+
+    newID :: InstrB Int
+    newID = do
+      i <- fst <$> get
+      modify ( first succ )
+      return i
+
+    buildInstr :: Action -> InstrB Instr
+    buildInstr ( ChangeValue v ) = return ( IIncr v )
+    buildInstr MoveForth         = return ( IMvPt 1 )
+    buildInstr MoveBack          = return ( IMvPt ( -1 ) )
+    buildInstr Output            = return IPutC
+    buildInstr Input             = return IGetC
+    buildInstr ( Loop acts )     = do
+      name <- ( ( ++ ) "l" . show ) <$> newID
+      instrs <- mapM buildInstr acts
+      modify ( second ( M.insert name instrs ) )
+      return ( ICall name )
+
 int, i8 :: Type
 int = IntegerType 32
 i8  = IntegerType 8
@@ -155,8 +197,8 @@ memory = ArrayType 100 int
 
 val = cons . C.Int 32 . fromIntegral
 
-codegenTop :: [ Action ] -> LLVM ()
-codegenTop exp = do
+codegenTop :: Instrs -> LLVM ()
+codegenTop instrBlocks = do
   define VoidType "llvm.memset.p0i8.i64" [ ( pointer i8, UnName 0 )
                                          , ( i8, UnName 0 )
                                          , ( IntegerType 64, UnName 0 )
@@ -166,33 +208,44 @@ codegenTop exp = do
   define int "putchar" [ ( int, UnName 0 ) ] []
   define int "getchar" [] []
 
-  define int "l1" [ ( pointer int, Name "i" ), ( pointer memory, Name "m" )  ] bs
+  mapM_ ( \ ( name, coms ) ->
+    define int name [ ( pointer int, Name "i" ), ( pointer memory, Name "m" )  ] ( bs name coms ) )
+    ( M.toList $ M.delete "main" instrBlocks )
 
-  define int "main" [] blks
+  define int "main" [] ( blks ( instrBlocks M.! "main" ) )
   where
-    bs = createBlocks $ execCodegen $ do
+    bs name coms = createBlocks $ execCodegen $ do
       entry <- addBlock entryBlockName
       setBlock entry
 
-      iV <- load ( local $ Name "i" )
-      mP <- getPtr ( local $ Name "m" ) [ val 0, iV ]
-      mv <- load mP
+      assign "i" ( local $ Name "i" )
+      assign "m" ( local $ Name "m" )
 
-      ifthen <- addBlock "if.then"
-      ifelse <- addBlock "if.else"
+      state <- loadState
 
-      test <- cmp IP.NE ( val 0 ) mv
-      cbr test ifthen ifelse
+      foldM_ cgen state coms
 
-      setBlock ifelse
-      test <- cmp IP.NE ( val 0 ) mv
-      cbr test ifthen ifelse
+      -- ( _, _, mV ) <- loadState
 
-      setBlock ifthen
+      -- test <- cmp IP.EQ ( val 0 ) mV
+
+      -- ifthen <- addBlock "if.then"
+      -- ifelse <- addBlock "if.else"
+
+      -- cbr test ifthen ifelse
+
+      -- setBlock ifthen
+
+      -- i <- getVar "i"
+      -- m <- getVar "m"
+
+      -- call ( externf ( Name name ) ) [ i, m ]
+      -- br ifelse
+
+      -- setBlock ifelse
       ret ( val 0 )
 
-
-    blks = createBlocks $ execCodegen $ do
+    blks exp = createBlocks $ execCodegen $ do
       entry <- addBlock entryBlockName
       setBlock entry
 
@@ -206,7 +259,7 @@ codegenTop exp = do
 
       b <- bitCast m ( pointer i8 )
 
-      call ( externf ( Name "llvm.memset.p0i8.i64" ) )
+      void $ call ( externf ( Name "llvm.memset.p0i8.i64" ) )
         [ b
         , cons ( C.Int 8 0    )
         , cons ( C.Int 64 400 )
@@ -214,98 +267,72 @@ codegenTop exp = do
         , cons ( C.Int 1 0    )
         ]
 
-      iV <- load i
-      mP <- getPtr m [ val 0, iV ]
-      mV <- load mP
-
-      foldM_ cgen ( iV, mP, mV ) exp
+      state <- loadState
+      foldM_ cgen state exp
 
       ret ( val 0 )
 
-cgen :: ( Operand, Operand, Operand ) -> Action -> Codegen ( Operand, Operand, Operand )
-cgen ( i, p, mv ) ( ChangeValue x ) = do
+loadState :: Codegen ( Operand, Operand, Operand )
+loadState = do
+  i <- getVar "i"
+  m <- getVar "m"
+
+  iV <- load i
+  mP <- getPtr m [ val 0, iV ]
+  mV <- load mP
+
+  return ( iV, mP, mV )
+
+cgen :: ( Operand, Operand, Operand ) -> Instr -> Codegen ( Operand, Operand, Operand )
+cgen ( i, p, mv ) ( IIncr x ) = do
   v <- add ( val x ) mv
   store p v
   return ( i, p, v )
-cgen ( i, _, _ ) MoveForth = do
-  iP <- getVar "i"
-  nI <- add ( val 1 ) i
-  store nI iP
-
+cgen ( iP, _, _ ) ( IMvPt v ) = do
+  i <- getVar "i"
   m <- getVar "m"
+
+  nI <- add ( val v ) iP
+  store i nI
+
   mP <- getPtr m [ val 0, nI ]
   mV <- load mP
 
   return ( nI, mP, mV )
-cgen ( i, _, _ ) MoveBack = do
-  iP <- getVar "i"
-  nI <- add ( val ( -1 ) ) i
-  store nI iP
-
-  m <- getVar "m"
-  mP <- getPtr m [ val 0, nI ]
-  mV <- load mP
-
-  return ( nI, mP, mV )
-cgen ( i, p, mv ) Output = do
-  call ( externf ( Name "putchar" ) ) [ mv ]
+cgen ( i, p, mv ) IPutC = do
+  void $ call ( externf ( Name "putchar" ) ) [ mv ]
   return ( i, p, mv )
-cgen state@( i, p, mv ) ( Loop list ) = do
-  ifthen <- addBlock ( "if.then" )
-  ifelse <- addBlock ( "if.else" )
-  ifexit <- addBlock ( "if.exit" )
+-- cgen ( _, _, _ ) ( ICall name ) = do
+cgen v ( ICall name ) = do
+  i <- getVar "i"
+  m <- getVar "m"
+  void $ call ( externf ( Name name ) ) [ i, m ]
 
-  -- Entry.
-
-  test <- cmp IP.NE ( val 0 ) mv
-  cbr test ifthen ifelse
-
-  -- ifthen.
-  setBlock ifthen
-  foldM_ cgen state list
-
-  ifVal <- alloca int
-  store ifVal ( val 0 )
-  br ifexit
-  ifthen <- getBlock
-
-  -- ifelse.
-  setBlock ifelse
-
-  elseVal <- alloca int
-  store elseVal ( val 1 )
-  br ifexit
-  ifelse <- getBlock
-
-  -- ifexit.
-  setBlock ifexit
-  phi int [ ( ifVal, ifthen ), ( elseVal, ifelse ) ]
-
-  return state
-
-liftError :: ExceptT String IO a -> IO a
-liftError = runExceptT >=> either fail return
-
--- codegen :: AST.Module -> [S.Expr] -> IO AST.Module
-codegen mod fns = withContext $ \context ->
-  liftError $ withModuleFromAST context newast $ \m -> do
-    llstr <- moduleLLVMAssembly m
-    putStrLn llstr
-    return newast
-  where
-    modn = mapM codegenTop fns
-    newast = runLLVM mod modn
+  loadState
 
 main :: IO ()
 main = do
-  -- [ file ] <- getArgs
-  -- acts <- ( semantic . syntax . lexical ) <$> readFile file
-
-  codegen initModule [ [ ChangeValue 97, Output ]]
+  [ file ] <- getArgs
+  acts <- ( preproc . semantic . syntax . lexical ) <$> readFile file
+  putStrLn ( "; " ++ show acts )
+  void $ codegen initModule acts
+  
+  -- print ( preproc [ ChangeValue 97, MoveForth, MoveBack, Loop [ ChangeValue 1 ] ] )
+  -- void $ codegen initModule ( preproc [ ChangeValue 97, MoveForth, MoveBack, Loop [ ChangeValue 1 ], Output ] )
 
   -- codegen initModule [ [ ChangeValue 97
                        -- , MoveForth, ChangeValue 2, Loop [ ChangeValue ( -1 ) ]
                        -- , MoveBack, Output ] ]-- [ acts ]
-  return ()
   where
     initModule = emptyModule "BF"
+
+    liftError :: ExceptT String IO a -> IO a
+    liftError = runExceptT >=> either fail return
+
+    codegen mod fns = withContext $ \context ->
+      liftError $ withModuleFromAST context newast $ \m -> do
+        llstr <- moduleLLVMAssembly m
+        putStrLn llstr
+        return newast
+      where
+        newast = runLLVM mod ( codegenTop fns )

@@ -174,10 +174,9 @@ addBlock bname = do
                    }
   return (Name qname)
 
-setBlock :: Name -> Codegen Name
+setBlock :: Name -> Codegen ()
 setBlock bname = do
   modify $ \s -> s { currentBlock = bname }
-  return bname
 
 getBlock :: Codegen Name
 getBlock = gets currentBlock
@@ -270,8 +269,8 @@ call fn args = instr $ Call Nothing CC.C [] (Right fn) (toArgs args) [] []
 alloca :: Type -> Codegen Operand
 alloca ty = instr $ Alloca ty Nothing 0 []
 
-store :: Operand -> Operand -> Codegen Operand
-store ptr val = instr $ Store False ptr val Nothing 0 []
+store :: Operand -> Operand -> Codegen ()
+store ptr val = void $ instr $ Store False ptr val Nothing 0 []
 
 load :: Operand -> Codegen Operand
 load ptr = instr $ Load False ptr Nothing 0 []
