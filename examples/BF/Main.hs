@@ -225,24 +225,24 @@ codegenTop instrBlocks = do
 
       foldM_ cgen state coms
 
-      -- ( _, _, mV ) <- loadState
+      ( _, _, mV ) <- loadState
 
-      -- test <- cmp IP.EQ ( val 0 ) mV
+      test <- cmp IP.NE ( val 0 ) mV
 
-      -- ifthen <- addBlock "if.then"
-      -- ifelse <- addBlock "if.else"
+      recallLabel <- addBlock "recall"
+      exitLabel <- addBlock "exit"
 
-      -- cbr test ifthen ifelse
+      cbr test recallLabel exitLabel
 
-      -- setBlock ifthen
+      setBlock recallLabel
 
-      -- i <- getVar "i"
-      -- m <- getVar "m"
+      i <- getVar "i"
+      m <- getVar "m"
 
-      -- call ( externf ( Name name ) ) [ i, m ]
-      -- br ifelse
+      call ( externf ( Name name ) ) [ i, m ]
+      br exitLabel
 
-      -- setBlock ifelse
+      setBlock exitLabel
       ret ( val 0 )
 
     blks exp = createBlocks $ execCodegen $ do
@@ -316,7 +316,7 @@ main = do
   acts <- ( preproc . semantic . syntax . lexical ) <$> readFile file
   putStrLn ( "; " ++ show acts )
   void $ codegen initModule acts
-  
+
   -- print ( preproc [ ChangeValue 97, MoveForth, MoveBack, Loop [ ChangeValue 1 ] ] )
   -- void $ codegen initModule ( preproc [ ChangeValue 97, MoveForth, MoveBack, Loop [ ChangeValue 1 ], Output ] )
 
